@@ -23,7 +23,7 @@ pub unsafe extern "C" fn peridot_host_app_labels(
     if packages.len() > 4096 {
         return -1;
     }
-    let activity = super::ONYX_PHOTO_ACTIVITY.load(std::sync::atomic::Ordering::Acquire)
+    let activity = super::PERIDOT_PHOTO_ACTIVITY.load(std::sync::atomic::Ordering::Acquire)
         as *mut super::ANativeActivity;
     let Some((vm, object, _)) = super::peridot_photo_vm_and_object(activity) else {
         return -1;
@@ -110,7 +110,7 @@ pub unsafe extern "C" fn peridot_host_app_icons(
     if packages.len() > 40 {
         return -1;
     }
-    let activity = super::ONYX_PHOTO_ACTIVITY.load(std::sync::atomic::Ordering::Acquire)
+    let activity = super::PERIDOT_PHOTO_ACTIVITY.load(std::sync::atomic::Ordering::Acquire)
         as *mut super::ANativeActivity;
     let Some((vm, object, _)) = super::peridot_photo_vm_and_object(activity) else {
         return -1;

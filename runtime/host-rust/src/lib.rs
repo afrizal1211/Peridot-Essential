@@ -17,14 +17,14 @@ use std::time::Duration;
 // FFI reads are atomic only; permission UI is requested from the
 // NativeActivity/main choreographer thread.
 
-static ONYX_PHOTO_ACTIVITY: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-static ONYX_PHOTO_CHOREOGRAPHER: std::sync::atomic::AtomicUsize =
+static PERIDOT_PHOTO_ACTIVITY: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+static PERIDOT_PHOTO_CHOREOGRAPHER: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
-static ONYX_PHOTO_PERMISSION_STATE: std::sync::atomic::AtomicI32 =
+static PERIDOT_PHOTO_PERMISSION_STATE: std::sync::atomic::AtomicI32 =
     std::sync::atomic::AtomicI32::new(0);
-static ONYX_PHOTO_REQUEST_PENDING: std::sync::atomic::AtomicBool =
+static PERIDOT_PHOTO_REQUEST_PENDING: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
-static ONYX_PHOTO_REQUEST_SCHEDULED: std::sync::atomic::AtomicBool =
+static PERIDOT_PHOTO_REQUEST_SCHEDULED: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
 
 fn peridot_photo_vm_and_object(
@@ -168,7 +168,7 @@ fn peridot_photo_compute_permission_state(activity: *mut ANativeActivity) -> i32
 fn peridot_photo_refresh_permission(activity: *mut ANativeActivity) {
     let state = peridot_photo_compute_permission_state(activity);
 
-    ONYX_PHOTO_PERMISSION_STATE.store(state, std::sync::atomic::Ordering::Release);
+    PERIDOT_PHOTO_PERMISSION_STATE.store(state, std::sync::atomic::Ordering::Release);
 }
 
 fn peridot_photo_request_on_main(activity: *mut ANativeActivity) -> bool {
@@ -233,14 +233,14 @@ fn peridot_photo_request_on_main(activity: *mut ANativeActivity) -> bool {
 }
 
 extern "C" fn peridot_photo_frame_callback(_frame_time_nanos: i64, _data: *mut core::ffi::c_void) {
-    ONYX_PHOTO_REQUEST_SCHEDULED.store(false, std::sync::atomic::Ordering::Release);
+    PERIDOT_PHOTO_REQUEST_SCHEDULED.store(false, std::sync::atomic::Ordering::Release);
 
-    if !ONYX_PHOTO_REQUEST_PENDING.swap(false, std::sync::atomic::Ordering::AcqRel) {
+    if !PERIDOT_PHOTO_REQUEST_PENDING.swap(false, std::sync::atomic::Ordering::AcqRel) {
         return;
     }
 
     let activity =
-        ONYX_PHOTO_ACTIVITY.load(std::sync::atomic::Ordering::Acquire) as *mut ANativeActivity;
+        PERIDOT_PHOTO_ACTIVITY.load(std::sync::atomic::Ordering::Acquire) as *mut ANativeActivity;
 
     if !activity.is_null() {
         let _ = peridot_photo_request_on_main(activity);
@@ -248,16 +248,16 @@ extern "C" fn peridot_photo_frame_callback(_frame_time_nanos: i64, _data: *mut c
 }
 
 fn peridot_photo_schedule_request() -> bool {
-    let choreographer = ONYX_PHOTO_CHOREOGRAPHER.load(std::sync::atomic::Ordering::Acquire)
+    let choreographer = PERIDOT_PHOTO_CHOREOGRAPHER.load(std::sync::atomic::Ordering::Acquire)
         as *mut core::ffi::c_void;
 
     if choreographer.is_null() {
         return false;
     }
 
-    ONYX_PHOTO_REQUEST_PENDING.store(true, std::sync::atomic::Ordering::Release);
+    PERIDOT_PHOTO_REQUEST_PENDING.store(true, std::sync::atomic::Ordering::Release);
 
-    if ONYX_PHOTO_REQUEST_SCHEDULED
+    if PERIDOT_PHOTO_REQUEST_SCHEDULED
         .compare_exchange(
             false,
             true,
@@ -285,18 +285,18 @@ fn peridot_photo_init(activity: *mut ANativeActivity) {
         return;
     }
 
-    ONYX_PHOTO_ACTIVITY.store(activity as usize, std::sync::atomic::Ordering::Release);
+    PERIDOT_PHOTO_ACTIVITY.store(activity as usize, std::sync::atomic::Ordering::Release);
 
     let choreographer = unsafe { AChoreographer_getInstance() };
 
-    ONYX_PHOTO_CHOREOGRAPHER.store(choreographer as usize, std::sync::atomic::Ordering::Release);
+    PERIDOT_PHOTO_CHOREOGRAPHER.store(choreographer as usize, std::sync::atomic::Ordering::Release);
 
     peridot_photo_refresh_permission(activity);
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn peridot_host_photo_permission_state() -> i32 {
-    ONYX_PHOTO_PERMISSION_STATE.load(std::sync::atomic::Ordering::Acquire)
+    PERIDOT_PHOTO_PERMISSION_STATE.load(std::sync::atomic::Ordering::Acquire)
 }
 
 #[unsafe(no_mangle)]
@@ -305,12 +305,12 @@ pub extern "C" fn peridot_host_request_photo_permission() -> i32 {
 }
 // Dart only posts a semantic integer. JNI work is deferred to the
 // NativeActivity main AChoreographer and never runs on Flutter's UI thread.
-static ONYX_HAPTIC_ACTIVITY: std::sync::atomic::AtomicUsize =
+static PERIDOT_HAPTIC_ACTIVITY: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
-static ONYX_HAPTIC_CHOREOGRAPHER: std::sync::atomic::AtomicUsize =
+static PERIDOT_HAPTIC_CHOREOGRAPHER: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
-static ONYX_HAPTIC_PENDING: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
-static ONYX_HAPTIC_SCHEDULED: std::sync::atomic::AtomicBool =
+static PERIDOT_HAPTIC_PENDING: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
+static PERIDOT_HAPTIC_SCHEDULED: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
 
 #[link(name = "android")]
@@ -385,7 +385,7 @@ fn peridot_haptic_constant(kind: i32, sdk: i32) -> i32 {
 
 fn peridot_haptic_perform_on_main(kind: i32) -> bool {
     let activity_ptr =
-        ONYX_HAPTIC_ACTIVITY.load(std::sync::atomic::Ordering::Acquire) as *mut ANativeActivity;
+        PERIDOT_HAPTIC_ACTIVITY.load(std::sync::atomic::Ordering::Acquire) as *mut ANativeActivity;
 
     if activity_ptr.is_null() {
         return false;
@@ -445,28 +445,28 @@ fn peridot_haptic_perform_on_main(kind: i32) -> bool {
 }
 
 extern "C" fn peridot_haptic_frame_callback(_frame_time_nanos: i64, _data: *mut core::ffi::c_void) {
-    ONYX_HAPTIC_SCHEDULED.store(false, std::sync::atomic::Ordering::Release);
+    PERIDOT_HAPTIC_SCHEDULED.store(false, std::sync::atomic::Ordering::Release);
 
-    let kind = ONYX_HAPTIC_PENDING.swap(0, std::sync::atomic::Ordering::AcqRel);
+    let kind = PERIDOT_HAPTIC_PENDING.swap(0, std::sync::atomic::Ordering::AcqRel);
 
     if kind != 0 {
         let _ = peridot_haptic_perform_on_main(kind);
     }
 
-    if ONYX_HAPTIC_PENDING.load(std::sync::atomic::Ordering::Acquire) != 0 {
+    if PERIDOT_HAPTIC_PENDING.load(std::sync::atomic::Ordering::Acquire) != 0 {
         let _ = peridot_host_haptic_schedule();
     }
 }
 
 fn peridot_host_haptic_schedule() -> bool {
-    let choreographer = ONYX_HAPTIC_CHOREOGRAPHER.load(std::sync::atomic::Ordering::Acquire)
+    let choreographer = PERIDOT_HAPTIC_CHOREOGRAPHER.load(std::sync::atomic::Ordering::Acquire)
         as *mut core::ffi::c_void;
 
     if choreographer.is_null() {
         return false;
     }
 
-    if ONYX_HAPTIC_SCHEDULED
+    if PERIDOT_HAPTIC_SCHEDULED
         .compare_exchange(
             false,
             true,
@@ -494,10 +494,10 @@ fn peridot_haptic_init(activity: *mut ANativeActivity) {
         return;
     }
 
-    ONYX_HAPTIC_ACTIVITY.store(activity as usize, std::sync::atomic::Ordering::Release);
+    PERIDOT_HAPTIC_ACTIVITY.store(activity as usize, std::sync::atomic::Ordering::Release);
 
     let choreographer = unsafe { peridot_haptic_choreographer_get_instance() };
-    ONYX_HAPTIC_CHOREOGRAPHER.store(choreographer as usize, std::sync::atomic::Ordering::Release);
+    PERIDOT_HAPTIC_CHOREOGRAPHER.store(choreographer as usize, std::sync::atomic::Ordering::Release);
 }
 
 #[unsafe(no_mangle)]
@@ -506,19 +506,19 @@ pub extern "C" fn peridot_host_haptic(kind: i32) -> i32 {
         return 0;
     }
 
-    if ONYX_HAPTIC_ACTIVITY.load(std::sync::atomic::Ordering::Acquire) == 0 {
+    if PERIDOT_HAPTIC_ACTIVITY.load(std::sync::atomic::Ordering::Acquire) == 0 {
         return 0;
     }
 
     // Coalesce bursts to one semantic feedback request per Android frame.
-    ONYX_HAPTIC_PENDING.store(kind, std::sync::atomic::Ordering::Release);
+    PERIDOT_HAPTIC_PENDING.store(kind, std::sync::atomic::Ordering::Release);
     if peridot_host_haptic_schedule() { 1 } else { 0 }
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn peridot_host_haptic_ready() -> i32 {
-    if ONYX_HAPTIC_ACTIVITY.load(std::sync::atomic::Ordering::Acquire) != 0
-        && ONYX_HAPTIC_CHOREOGRAPHER.load(std::sync::atomic::Ordering::Acquire) != 0
+    if PERIDOT_HAPTIC_ACTIVITY.load(std::sync::atomic::Ordering::Acquire) != 0
+        && PERIDOT_HAPTIC_CHOREOGRAPHER.load(std::sync::atomic::Ordering::Acquire) != 0
     {
         1
     } else {
@@ -534,10 +534,10 @@ pub fn peridot_host_open_url_jni(code: i32) -> bool {
     };
 
     let activity_ptr =
-        ONYX_HAPTIC_ACTIVITY.load(std::sync::atomic::Ordering::Acquire) as *mut ANativeActivity;
+        PERIDOT_HAPTIC_ACTIVITY.load(std::sync::atomic::Ordering::Acquire) as *mut ANativeActivity;
 
     if activity_ptr.is_null() {
-        eprintln!("ONYX_OPEN_URL activity_ptr is null");
+        eprintln!("PERIDOT_OPEN_URL activity_ptr is null");
         return false;
     }
 
@@ -549,14 +549,14 @@ pub fn peridot_host_open_url_jni(code: i32) -> bool {
     };
 
     if vm_raw.is_null() || activity_raw.is_null() {
-        eprintln!("ONYX_OPEN_URL vm or activity is null");
+        eprintln!("PERIDOT_OPEN_URL vm or activity is null");
         return false;
     }
 
     let vm = match unsafe { jni::JavaVM::from_raw(vm_raw) } {
         Ok(vm) => vm,
         Err(e) => {
-            eprintln!("ONYX_OPEN_URL JavaVM::from_raw error {e:?}");
+            eprintln!("PERIDOT_OPEN_URL JavaVM::from_raw error {e:?}");
             return false;
         }
     };
@@ -564,7 +564,7 @@ pub fn peridot_host_open_url_jni(code: i32) -> bool {
     let mut env = match vm.attach_current_thread() {
         Ok(env) => env,
         Err(e) => {
-            eprintln!("ONYX_OPEN_URL attach_current_thread error {e:?}");
+            eprintln!("PERIDOT_OPEN_URL attach_current_thread error {e:?}");
             return false;
         }
     };
@@ -610,19 +610,19 @@ pub fn peridot_host_open_url_jni(code: i32) -> bool {
 
     match result {
         Ok(true) => {
-            eprintln!("ONYX_OPEN_URL launched {url}");
+            eprintln!("PERIDOT_OPEN_URL launched {url}");
             true
         }
         Ok(false) => false,
         Err(e) => {
-            eprintln!("ONYX_OPEN_URL JNI error {e:?}");
+            eprintln!("PERIDOT_OPEN_URL JNI error {e:?}");
             false
         }
     }
 }
-static ONYX_BACK_INTERCEPT: std::sync::atomic::AtomicBool =
+static PERIDOT_BACK_INTERCEPT: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
-static ONYX_BACK_PENDING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static PERIDOT_BACK_PENDING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 #[link(name = "android")]
 unsafe extern "C" {
@@ -639,13 +639,13 @@ unsafe extern "C" {
 #[unsafe(no_mangle)]
 pub extern "C" fn peridot_host_set_back_intercept(enabled: i32) -> i32 {
     let value = enabled != 0;
-    let previous = ONYX_BACK_INTERCEPT.swap(value, std::sync::atomic::Ordering::AcqRel);
+    let previous = PERIDOT_BACK_INTERCEPT.swap(value, std::sync::atomic::Ordering::AcqRel);
     if previous != value {
         platform_bridge::refresh_back();
     }
 
     if !value {
-        ONYX_BACK_PENDING.store(false, std::sync::atomic::Ordering::Release);
+        PERIDOT_BACK_PENDING.store(false, std::sync::atomic::Ordering::Release);
     }
 
     1
@@ -653,7 +653,7 @@ pub extern "C" fn peridot_host_set_back_intercept(enabled: i32) -> i32 {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn peridot_host_consume_back_request() -> i32 {
-    if ONYX_BACK_PENDING.swap(false, std::sync::atomic::Ordering::AcqRel) {
+    if PERIDOT_BACK_PENDING.swap(false, std::sync::atomic::Ordering::AcqRel) {
         1
     } else {
         0
@@ -661,7 +661,7 @@ pub extern "C" fn peridot_host_consume_back_request() -> i32 {
 }
 
 fn peridot_back_finish_handled(event: *const core::ffi::c_void, original_handled: i32) -> i32 {
-    if event.is_null() || !ONYX_BACK_INTERCEPT.load(std::sync::atomic::Ordering::Acquire) {
+    if event.is_null() || !PERIDOT_BACK_INTERCEPT.load(std::sync::atomic::Ordering::Acquire) {
         return original_handled;
     }
 
@@ -681,7 +681,7 @@ fn peridot_back_finish_handled(event: *const core::ffi::c_void, original_handled
 
     let action = unsafe { peridot_key_event_get_action(event as *const AInputEvent) };
     if action == AKEY_EVENT_ACTION_UP {
-        ONYX_BACK_PENDING.store(true, std::sync::atomic::Ordering::Release);
+        PERIDOT_BACK_PENDING.store(true, std::sync::atomic::Ordering::Release);
     }
 
     // Consume DOWN + UP only while Peridot has an internal page to go back to.

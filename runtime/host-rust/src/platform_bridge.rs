@@ -33,7 +33,7 @@ static BACK_LISTENER: Mutex<Option<extern "C" fn(i32)>> = Mutex::new(None);
 pub extern "C" fn peridot_host_set_back_listener(listener: Option<extern "C" fn(i32)>) {
     *BACK_LISTENER.lock().unwrap() = listener;
     BACK_EVENT.store(0, Ordering::Release);
-    super::ONYX_BACK_PENDING.store(false, Ordering::Release);
+    super::PERIDOT_BACK_PENDING.store(false, Ordering::Release);
 }
 
 pub fn init(activity: *mut super::ANativeActivity) {
@@ -86,7 +86,7 @@ pub extern "system" fn Java_io_github_davvv98_peridotessential_PeridotActivity_n
     _: JNIEnv,
     _: JClass,
 ) -> jboolean {
-    super::ONYX_BACK_INTERCEPT.load(Ordering::Acquire) as jboolean
+    super::PERIDOT_BACK_INTERCEPT.load(Ordering::Acquire) as jboolean
 }
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_io_github_davvv98_peridotessential_PeridotActivity_nativeBack(
@@ -113,8 +113,8 @@ pub extern "system" fn Java_io_github_davvv98_peridotessential_PeridotActivity_n
         return;
     }
     BACK_EVENT.store(packet, Ordering::Release);
-    if phase == 4 && super::ONYX_BACK_INTERCEPT.load(Ordering::Acquire) {
-        super::ONYX_BACK_PENDING.store(true, Ordering::Release);
+    if phase == 4 && super::PERIDOT_BACK_INTERCEPT.load(Ordering::Acquire) {
+        super::PERIDOT_BACK_PENDING.store(true, Ordering::Release);
     }
 }
 #[unsafe(no_mangle)]

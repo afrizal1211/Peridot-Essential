@@ -515,8 +515,8 @@ fn package_app_id_from_packages_list(contents: &str, package: &str) -> Option<u3
 }
 
 fn configured_app_uid_policy() -> AppUidPolicy {
-    *APP_UID_POLICY.get_or_init(|| match std::env::var("ONYX_APP_UID") {
-        Err(std::env::VarError::NotPresent) => match std::env::var("ONYX_APP_PACKAGE") {
+    *APP_UID_POLICY.get_or_init(|| match std::env::var("PERIDOT_APP_UID") {
+        Err(std::env::VarError::NotPresent) => match std::env::var("PERIDOT_APP_PACKAGE") {
             Err(std::env::VarError::NotPresent) => AppUidPolicy::SelinuxOnly,
             Err(std::env::VarError::NotUnicode(_)) => AppUidPolicy::Reject,
             Ok(package) => fs::read_to_string("/data/system/packages.list")
@@ -667,7 +667,7 @@ fn write_verified(path: &Path, value: &str) -> Result<String, String> {
     read_trimmed(path)
 }
 
-const ONYX_MAX_FCC_UA: i64 = 22_000_000;
+const PERIDOT_MAX_FCC_UA: i64 = 22_000_000;
 const BYPASS_CHARGING_PATHS: [&str; 2] = [
     "/sys/class/power_supply/battery/bypass_charging",
     "/sys/class/power_supply/battery/bypass_charge",
@@ -812,7 +812,7 @@ fn maintain_bypass_policy() {
     if let Some(state) = state.filter(|state| state.bypass_charging == 1) {
         if let Err(error) = reconcile_bypass(true, state.bypass_threshold, false) {
             if BYPASS_POLICY_ERROR.swap(1, Ordering::AcqRel) == 0 {
-                eprintln!("ONYX_BYPASS_POLICY_FAIL {error}");
+                eprintln!("PERIDOT_BYPASS_POLICY_FAIL {error}");
             }
         }
     }
@@ -878,7 +878,7 @@ fn charging_profile_fcc_ua(profile: i32) -> Option<i64> {
         33 => Some(8_067_000),
         65 => Some(15_889_000),
         85 => Some(20_778_000),
-        90 => Some(ONYX_MAX_FCC_UA),
+        90 => Some(PERIDOT_MAX_FCC_UA),
         _ => None,
     }
 }
@@ -1619,7 +1619,7 @@ fn apply_cluster_freq_controls_unlocked(
     )?;
     CPU_FREQ_WRITE_ACK.store(if status.exact { 1 } else { 2 }, Ordering::Release);
     eprintln!(
-        "ONYX_CPU_REQUEST policy={policy} requested_khz={min}-{max} effective_khz={}-{} exact={}",
+        "PERIDOT_CPU_REQUEST policy={policy} requested_khz={min}-{max} effective_khz={}-{} exact={}",
         status.min, status.max, status.exact
     );
     Ok(())
@@ -2413,7 +2413,7 @@ fn set_display_toggle(case_id: i32, enabled: bool, state: &AtomicI32) -> Result<
 }
 
 const DEFAULT_STATE_DIR: &str = "/data/adb/peridot-essential";
-const STATE_DIR_ENV: &str = "ONYX_STATE_DIR";
+const STATE_DIR_ENV: &str = "PERIDOT_STATE_DIR";
 
 static PERFORMANCE_PROFILE_SUPPORTED: AtomicI32 = AtomicI32::new(-1);
 static PERFORMANCE_PROFILE_VERIFIED: AtomicI32 = AtomicI32::new(-1);
@@ -3836,7 +3836,7 @@ fn restore_persisted_state() {
 
     if state.sconfig_override >= 0 {
         if let Err(error) = sconfig::set(state.sconfig_override) {
-            eprintln!("ONYX_SCONFIG_RESTORE_FAIL {error}");
+            eprintln!("PERIDOT_SCONFIG_RESTORE_FAIL {error}");
         }
     }
 
@@ -4074,7 +4074,7 @@ fn late_boot_restore_loop() {
         let runtime_result = reassert_runtime_state(true);
         reassert_persisted_governors();
         eprintln!(
-            "ONYX_BOOT_RESTORE attempt={} runtime_ack={} runtime_ok={}",
+            "PERIDOT_BOOT_RESTORE attempt={} runtime_ack={} runtime_ok={}",
             attempt + 1,
             KEEPALIVE_APPLY_ACK.load(Ordering::Acquire),
             i32::from(runtime_result.is_ok()),
@@ -4286,7 +4286,7 @@ fn charging_power_supply_event_loop() {
         };
         if fd < 0 {
             eprintln!(
-                "ONYX_CHARGING_UEVENT_SOCKET_FAIL {}",
+                "PERIDOT_CHARGING_UEVENT_SOCKET_FAIL {}",
                 std::io::Error::last_os_error()
             );
             std::thread::sleep(Duration::from_secs(2));
@@ -4308,7 +4308,7 @@ fn charging_power_supply_event_loop() {
         } == 0;
         if !bound {
             eprintln!(
-                "ONYX_CHARGING_UEVENT_BIND_FAIL {}",
+                "PERIDOT_CHARGING_UEVENT_BIND_FAIL {}",
                 std::io::Error::last_os_error()
             );
             unsafe { close(fd) };
@@ -4341,7 +4341,7 @@ fn charging_power_supply_event_loop() {
                 .map(|state| (state.charging, state.bypass_charging))
                 .unwrap_or((0, 0));
             if let Err(error) = maintain_charging_state(profile, bypass_charging) {
-                eprintln!("ONYX_CHARGING_UEVENT_APPLY_FAIL {error}");
+                eprintln!("PERIDOT_CHARGING_UEVENT_APPLY_FAIL {error}");
             }
         }
 
@@ -4353,10 +4353,10 @@ fn charging_power_supply_event_loop() {
 pub fn start_background_services() {
     #[cfg(target_os = "android")]
     std::thread::spawn(bypass_monitor_loop);
-    if std::env::var("ONYX_REVERSE_IPC").as_deref() == Ok("1") {
+    if std::env::var("PERIDOT_REVERSE_IPC").as_deref() == Ok("1") {
         std::thread::spawn(reverse_ipc_loop);
     }
-    if std::env::var("ONYX_LOOPBACK_IPC").as_deref() == Ok("1") {
+    if std::env::var("PERIDOT_LOOPBACK_IPC").as_deref() == Ok("1") {
         std::thread::spawn(loopback_ipc_loop);
     }
     let _ = persisted_state();
@@ -4405,7 +4405,7 @@ fn loopback_ipc_loop() {
                 // A previous daemon can leave the fixed local port transiently
                 // unavailable. Keep the authenticated Unix transports alive
                 // and recover this compatibility listener without a reboot.
-                eprintln!("ONYX_ESSENTIALD_LOOPBACK_BIND_FAIL {error}");
+                eprintln!("PERIDOT_ESSENTIALD_LOOPBACK_BIND_FAIL {error}");
                 std::thread::sleep(Duration::from_secs(2));
                 continue;
             }
@@ -4417,7 +4417,7 @@ fn loopback_ipc_loop() {
                     std::thread::spawn(move || serve_loopback_client(stream));
                 }
                 Err(error) => {
-                    eprintln!("ONYX_ESSENTIALD_LOOPBACK_ACCEPT_FAIL {error}");
+                    eprintln!("PERIDOT_ESSENTIALD_LOOPBACK_ACCEPT_FAIL {error}");
                     std::thread::sleep(Duration::from_millis(100));
                 }
             }
@@ -5975,7 +5975,7 @@ fn handle_enabled_command(line: &str) -> String {
 
 fn serve_authenticated_client<S: Read + Write>(mut stream: S, peer: u32, transport: i32) {
     if !client_uid_allowed(peer, configured_app_uid_policy()) {
-        eprintln!("ONYX_ESSENTIALD_PEER_REJECT unauthorized_uid");
+        eprintln!("PERIDOT_ESSENTIALD_PEER_REJECT unauthorized_uid");
         let _ = stream.write_all(b"ERR unauthorized peer\n");
         return;
     }
@@ -6031,7 +6031,7 @@ fn serve_client_with_transport(mut stream: UnixStream, transport: i32) {
     match peer_uid(&stream) {
         Ok(peer) => serve_authenticated_client(stream, peer, transport),
         Err(error) => {
-            eprintln!("ONYX_ESSENTIALD_PEER_REJECT {error}");
+            eprintln!("PERIDOT_ESSENTIALD_PEER_REJECT {error}");
             let _ = stream.write_all(b"ERR peer credentials unavailable\n");
         }
     }
@@ -6041,7 +6041,7 @@ fn serve_loopback_client(mut stream: TcpStream) {
     match tcp_peer_uid(&stream) {
         Ok(peer) => serve_authenticated_client(stream, peer, 3),
         Err(error) => {
-            eprintln!("ONYX_ESSENTIALD_LOOPBACK_PEER_REJECT {error}");
+            eprintln!("PERIDOT_ESSENTIALD_LOOPBACK_PEER_REJECT {error}");
             let _ = stream.write_all(b"ERR peer credentials unavailable\n");
         }
     }

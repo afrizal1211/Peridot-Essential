@@ -20,10 +20,10 @@ Configure these under Settings → Secrets and variables → Actions:
 
 | Secret | Value |
 | --- | --- |
-| ONYX_KEYSTORE_BASE64 | Complete JKS encoded as base64 |
-| ONYX_KEY_ALIAS | Key alias; default peridot-essential |
-| ONYX_KEYSTORE_PASS | JKS password |
-| ONYX_KEY_PASS | Key password; defaults to the JKS password |
+| PERIDOT_KEYSTORE_BASE64 | Complete JKS encoded as base64 |
+| PERIDOT_KEY_ALIAS | Key alias; default peridot-essential |
+| PERIDOT_KEYSTORE_PASS | JKS password |
+| PERIDOT_KEY_PASS | Key password; defaults to the JKS password |
 
 Test defaults use android as the password. Use your own release key and keep
 the JKS outside the repository.
@@ -42,7 +42,7 @@ A separate PAT or disabling signature verification is unnecessary.
 ## Tag releases
 
 Tags matching v* trigger the workflow and publish artifacts. They require
-ONYX_KEYSTORE_BASE64 to prevent releases signed with temporary keys.
+PERIDOT_KEYSTORE_BASE64 to prevent releases signed with temporary keys.
 
 ```sh
 git tag v1.18.5-peridot.4
@@ -55,7 +55,7 @@ The tag does not automatically change the internal APK version.
 
 Flutter 3.47.7, API 36, build-tools 36.0.0 and NDK 27.2.12479018 are pinned.
 The engine uses a separate checkout pinned to engine.version and is cached
-with its header. Scripts honor explicit workflow versions and use ONYX_*
+with its header. Scripts honor explicit workflow versions and use PERIDOT_*
 variables and the peridot-essential-daemon/peridot-essential-host crates.
 
 The workflow produces the app and root module. Native ROM bundles remain

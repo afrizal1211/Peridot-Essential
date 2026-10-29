@@ -296,7 +296,7 @@ class _SystemColorsPanelState extends State<SystemColorsPanel> {
     widget.onSelectionFeedback();
     _edit(update);
     debugPrint(
-      'ONYX_SYSTEM_COLORS_SELECT wallpaper=$_wallpaper seed=$_seed '
+      'PERIDOT_SYSTEM_COLORS_SELECT wallpaper=$_wallpaper seed=$_seed '
       'style=$_style revision=${widget.palette.revision}',
     );
     _scheduleApply();
@@ -391,7 +391,7 @@ class _SystemColorsPanelState extends State<SystemColorsPanel> {
     }
     final int revision = widget.palette.revision;
     if (widget.onApply(_wallpaper, _seed, _style)) {
-      debugPrint('ONYX_SYSTEM_COLORS_SUBMIT revision=$revision');
+      debugPrint('PERIDOT_SYSTEM_COLORS_SUBMIT revision=$revision');
       setState(() {
         _pendingRevision = revision;
         _notice = null;
@@ -1672,7 +1672,7 @@ class _SystemPalettePreviewPaneState extends State<_SystemPalettePreviewPane> {
     } catch (error) {
       if (mounted) {
         setState(() => _failed = true);
-        debugPrint('ONYX_PALETTE_PREVIEW_FAIL $error');
+        debugPrint('PERIDOT_PALETTE_PREVIEW_FAIL $error');
       }
     } finally {
       _running = false;

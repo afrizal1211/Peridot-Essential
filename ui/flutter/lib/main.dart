@@ -10333,7 +10333,7 @@ class _ResolutionScreenState extends State<ResolutionScreen> {
               runSpacing: 6,
               children: <Widget>[
                 const Text(
-                  'ONYX PRESET MAPPINGS',
+                  'PERIDOT PRESET MAPPINGS',
                   style: TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w900,

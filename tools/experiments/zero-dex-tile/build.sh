@@ -3,18 +3,18 @@
 set -euo pipefail
 SOURCE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$SOURCE/../../.." && pwd)"
-MODE="${ONYX_TILE_LAB_MODE:-debug}"
+MODE="${PERIDOT_TILE_LAB_MODE:-debug}"
 case "$MODE" in
     debug) LINK_FLAGS=(--debug-mode) ;;
     release) LINK_FLAGS=() ;;
-    *) echo 'ONYX_TILE_LAB_MODE must be debug or release' >&2; exit 1 ;;
+    *) echo 'PERIDOT_TILE_LAB_MODE must be debug or release' >&2; exit 1 ;;
 esac
 OUT="$ROOT/out/zero-dex-tile-lab/$MODE"
 SDK="${ANDROID_SDK_ROOT:-/home/neeschal/Android/Sdk}"
 NDK="$SDK/ndk/30.0.16248370/toolchains/llvm/prebuilt/linux-x86_64"
 TOOLS="$SDK/build-tools/35.0.0"
-KEYSTORE="${ONYX_KEYSTORE:?Set existing local development keystore}"
-ALIAS="${ONYX_KEY_ALIAS:?Set existing local development key alias}"
+KEYSTORE="${PERIDOT_KEYSTORE:?Set existing local development keystore}"
+ALIAS="${PERIDOT_KEY_ALIAS:?Set existing local development key alias}"
 mkdir -p "$OUT/lib/arm64-v8a"
 cp "$SOURCE/wrap.sh" "$OUT/lib/arm64-v8a/wrap.sh"
 chmod 0755 "$OUT/lib/arm64-v8a/wrap.sh"
@@ -31,7 +31,7 @@ chmod 0755 "$OUT/lib/arm64-v8a/wrap.sh"
 ( cd "$OUT"; zip -0 -r unsigned.apk lib >/dev/null )
 "$TOOLS/zipalign" -P 16 -f 4 "$OUT/unsigned.apk" "$OUT/Peridot-Zero-DEX-Tile-Lab.apk"
 "$TOOLS/apksigner" sign --ks "$KEYSTORE" --ks-key-alias "$ALIAS" \
-    --ks-pass "pass:${ONYX_KEYSTORE_PASS:-android}" "$OUT/Peridot-Zero-DEX-Tile-Lab.apk"
+    --ks-pass "pass:${PERIDOT_KEYSTORE_PASS:-android}" "$OUT/Peridot-Zero-DEX-Tile-Lab.apk"
 "$TOOLS/apksigner" verify "$OUT/Peridot-Zero-DEX-Tile-Lab.apk"
 "$TOOLS/zipalign" -c -P 16 4 "$OUT/Peridot-Zero-DEX-Tile-Lab.apk"
 if unzip -Z1 "$OUT/Peridot-Zero-DEX-Tile-Lab.apk" | grep -Eq '\.(dex|jar|odex|vdex)$'; then

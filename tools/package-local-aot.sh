@@ -5,9 +5,9 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="${1:?usage: package-local-aot.sh ABSOLUTE_BUILD_DIRECTORY}"
 SDK="${ANDROID_SDK_ROOT:-$HOME/Android/Sdk}"
-KEYSTORE="${ONYX_KEYSTORE:?Set the existing signing keystore path}"
-ALIAS="${ONYX_KEY_ALIAS:?Set the existing signing alias}"
-PASS="${ONYX_KEYSTORE_PASS:-android}"
+KEYSTORE="${PERIDOT_KEYSTORE:?Set the existing signing keystore path}"
+ALIAS="${PERIDOT_KEY_ALIAS:?Set the existing signing alias}"
+PASS="${PERIDOT_KEYSTORE_PASS:-android}"
 TOOLS=""
 while IFS= read -r VERSION; do
     CANDIDATE="$SDK/build-tools/$VERSION"
@@ -38,14 +38,14 @@ mkdir -p "$OUT/package/assets/flutter_assets"
 cp "$ROOT/runtime/flutter-engine/prebuilt/android-arm64/icudtl.dat" "$OUT/package/assets/"
 cp -a "$OUT/flutter-aot/flutter_assets/." "$OUT/package/assets/flutter_assets/"
 find "$OUT/flutter-aot/flutter_assets" -type f -printf '%P\n' | LC_ALL=C sort > "$OUT/package/assets/flutter_assets.index"
-ONYX_RUNTIME_ASSET_STAMP="$(
+PERIDOT_RUNTIME_ASSET_STAMP="$(
     (
         cd "$OUT/package/assets"
         find flutter_assets -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum
         sha256sum icudtl.dat
     ) | sha256sum | awk '{print $1}'
 )"
-printf '%s\n' "$ONYX_RUNTIME_ASSET_STAMP" > "$OUT/package/assets/peridot_runtime.stamp"
+printf '%s\n' "$PERIDOT_RUNTIME_ASSET_STAMP" > "$OUT/package/assets/peridot_runtime.stamp"
 (
     cd "$OUT/package"
     zip -0 -r unsigned.apk lib assets >/dev/null

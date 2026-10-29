@@ -27,7 +27,7 @@ fn removed_wake_control_is_not_restored_reported_or_saved_after_upgrade() {
     )
     .unwrap();
     // This executable has one test and no concurrent environment access.
-    unsafe { std::env::set_var("ONYX_STATE_DIR", &dir) };
+    unsafe { std::env::set_var("PERIDOT_STATE_DIR", &dir) };
 
     let snapshot = handle_command("GET snapshot");
     assert!(!snapshot.contains("dt2w"), "{snapshot}");

@@ -3,9 +3,9 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/scheduler.dart';
 
 /// Development-only measurements, never an always-running production ticker.
-/// Enable with ONYX_MOTION_TRACE=true; records durations, not user content.
+/// Enable with PERIDOT_MOTION_TRACE=true; records durations, not user content.
 class PeridotMotionDiagnostics {
-  static const enabled = bool.fromEnvironment('ONYX_MOTION_TRACE');
+  static const enabled = bool.fromEnvironment('PERIDOT_MOTION_TRACE');
   static final List<FrameTiming> _frames = [];
   static Timer? _finish;
   static bool _attached = false;
@@ -59,7 +59,7 @@ class PeridotMotionDiagnostics {
         .length;
     final p95 = ((_frames.length - 1) * 0.95).round();
     debugPrint(
-      'ONYX_BACK_TIMINGS edge=$_edge frames=${_frames.length} '
+      'PERIDOT_BACK_TIMINGS edge=$_edge frames=${_frames.length} '
       'build_p95_us=${build[p95]} raster_p95_us=${raster[p95]} '
       'build_max_us=${build.last} raster_max_us=${raster.last} '
       'over_8ms=$slow120 over_16ms=$slow60',

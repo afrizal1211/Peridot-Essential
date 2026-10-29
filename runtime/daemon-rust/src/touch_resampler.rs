@@ -373,7 +373,7 @@ mod android {
         // never needs cross-domain process tracing or /proc fd inspection.
         // Root modules leave this unset and retain the v1.18.0 service-fd
         // path with the existing direct-device compatibility fallback.
-        if std::env::var("ONYX_TOUCH_DIRECT_INPUT").as_deref() == Ok("1") {
+        if std::env::var("PERIDOT_TOUCH_DIRECT_INPUT").as_deref() == Ok("1") {
             return direct_output_handle().map(|(file, path)| (file, path, 2, None));
         }
 

@@ -3,9 +3,9 @@ use peridot_essential_backend::handle_command;
 use std::{fs, process::Command};
 #[test]
 fn sconfig_keeps_original_across_modes_disable_and_process_restart() {
-    if let Ok(expected) = std::env::var("ONYX_TEST_SCONFIG_RESUME") {
+    if let Ok(expected) = std::env::var("PERIDOT_TEST_SCONFIG_RESUME") {
         assert_eq!(handle_command("SET service.enabled 1"), "OK applied");
-        let node = std::env::var("ONYX_TEST_SCONFIG_PATH").unwrap();
+        let node = std::env::var("PERIDOT_TEST_SCONFIG_PATH").unwrap();
         assert_eq!(fs::read_to_string(node).unwrap(), expected);
         return;
     }
@@ -26,8 +26,8 @@ fn sconfig_keeps_original_across_modes_disable_and_process_restart() {
     )
     .unwrap();
     unsafe {
-        std::env::set_var("ONYX_STATE_DIR", &dir);
-        std::env::set_var("ONYX_TEST_SCONFIG_PATH", &node);
+        std::env::set_var("PERIDOT_STATE_DIR", &dir);
+        std::env::set_var("PERIDOT_TEST_SCONFIG_PATH", &node);
     }
     for mode in [6, 18, 56, 68] {
         assert_eq!(
@@ -52,7 +52,7 @@ fn sconfig_keeps_original_across_modes_disable_and_process_restart() {
             "--exact",
             "sconfig_keeps_original_across_modes_disable_and_process_restart",
         ])
-        .env("ONYX_TEST_SCONFIG_RESUME", "6")
+        .env("PERIDOT_TEST_SCONFIG_RESUME", "6")
         .status()
         .unwrap();
     assert!(status.success());

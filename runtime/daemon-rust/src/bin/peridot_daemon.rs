@@ -4,23 +4,23 @@ use peridot_essential_backend::{
 };
 
 fn main() {
-    eprintln!("ONYX_ESSENTIALD_START protocol={PROTOCOL_VERSION} socket=@{SOCKET_NAME}");
+    eprintln!("PERIDOT_ESSENTIALD_START protocol={PROTOCOL_VERSION} socket=@{SOCKET_NAME}");
     let listener = match bind_listener(SOCKET_NAME) {
         Ok(fd) => fd,
         Err(e) => {
-            eprintln!("ONYX_ESSENTIALD_BIND_FAIL {e}");
+            eprintln!("PERIDOT_ESSENTIALD_BIND_FAIL {e}");
             return;
         }
     };
     start_background_services();
-    eprintln!("ONYX_ESSENTIALD_READY protocol={PROTOCOL_VERSION} socket=@{SOCKET_NAME}");
+    eprintln!("PERIDOT_ESSENTIALD_READY protocol={PROTOCOL_VERSION} socket=@{SOCKET_NAME}");
     loop {
         match accept_stream(listener) {
             Ok(stream) => {
                 std::thread::spawn(move || serve_client(stream));
             }
             Err(e) => {
-                eprintln!("ONYX_ESSENTIALD_ACCEPT_FAIL {e}");
+                eprintln!("PERIDOT_ESSENTIALD_ACCEPT_FAIL {e}");
                 std::thread::sleep(std::time::Duration::from_millis(100));
             }
         }

@@ -20,7 +20,7 @@ the delivered source and does not imply that a release has already been publishe
 - Use package `io.github.davvv98.peridotessential`, `PeridotActivity`,
   `peridot_daemon`/`peridot_ctl`, Peridot JNI and native APIs.
 - Add the Peridot logo, launcher/adaptive icons and grouped Sconfig cards.
-- Update GitHub Actions, ONYX_* signing variables and Flutter engine symbol
+- Update GitHub Actions, PERIDOT_* signing variables and Flutter engine symbol
   stripping before APK packaging.
 - Update documentation for Peridot hardware and current implementation status.
 

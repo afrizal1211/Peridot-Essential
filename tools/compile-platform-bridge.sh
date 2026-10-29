@@ -3,8 +3,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="${1:?output directory required}"
 SDK="${ANDROID_SDK_ROOT:?Android SDK required}"
-if [ -n "${ONYX_BUILD_TOOLS_VERSION:-}" ]; then
-    TOOLS="$SDK/build-tools/$ONYX_BUILD_TOOLS_VERSION"
+if [ -n "${PERIDOT_BUILD_TOOLS_VERSION:-}" ]; then
+    TOOLS="$SDK/build-tools/$PERIDOT_BUILD_TOOLS_VERSION"
 else
     TOOLS="$(find "$SDK/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"
 fi

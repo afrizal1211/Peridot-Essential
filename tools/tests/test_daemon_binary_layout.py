@@ -20,7 +20,7 @@ with tempfile.TemporaryDirectory(prefix='peridot-bin-layout-') as directory:
     for old in ['rodin_essentiald.rs', 'rodin_essentialctl.rs']:
         (path / 'src/bin' / old).write_text('use rodin_essential_backend::removed_crate;\nfn main() {}\n')
     subprocess.run(['cargo', 'check', '--offline', '--bins', '--manifest-path', str(path / 'Cargo.toml')], check=True)
-print('ONYX_DAEMON_BINARY_LAYOUT=PASS (stale sources ignored)')
+print('PERIDOT_DAEMON_BINARY_LAYOUT=PASS (stale sources ignored)')
 with tempfile.TemporaryDirectory(prefix='peridot-source-cleanup-') as directory:
     path = pathlib.Path(directory)
     (path / 'tools').mkdir()
@@ -37,4 +37,4 @@ with tempfile.TemporaryDirectory(prefix='peridot-source-cleanup-') as directory:
     assert not old.exists()
     assert new.read_text() == 'new entry point'
     assert notice.read_text() == 'Rodin Essential by NEESCHAL-3'
-print('ONYX_LEGACY_CLEANUP=PASS (new code and attribution preserved)')
+print('PERIDOT_LEGACY_CLEANUP=PASS (new code and attribution preserved)')

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <policy>
-    <signer signature="@ONYX_ESSENTIAL">
+    <signer signature="@PERIDOT_ESSENTIAL">
         <package name="io.github.davvv98.peridotessential">
             <seinfo value="peridot_essential" />
         </package>

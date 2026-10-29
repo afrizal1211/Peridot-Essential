@@ -78,10 +78,10 @@ jobs:
       - name: Prepare signing key
         id: signing
         env:
-          SIGNING_KEY_B64: ${{ secrets.ONYX_KEYSTORE_BASE64 }}
-          SIGNING_ALIAS: ${{ secrets.ONYX_KEY_ALIAS || 'peridot-essential' }}
-          SIGNING_STORE_PASS: ${{ secrets.ONYX_KEYSTORE_PASS || 'android' }}
-          SIGNING_KEY_PASS: ${{ secrets.ONYX_KEY_PASS || secrets.ONYX_KEYSTORE_PASS || 'android' }}
+          SIGNING_KEY_B64: ${{ secrets.PERIDOT_KEYSTORE_BASE64 }}
+          SIGNING_ALIAS: ${{ secrets.PERIDOT_KEY_ALIAS || 'peridot-essential' }}
+          SIGNING_STORE_PASS: ${{ secrets.PERIDOT_KEYSTORE_PASS || 'android' }}
+          SIGNING_KEY_PASS: ${{ secrets.PERIDOT_KEY_PASS || secrets.PERIDOT_KEYSTORE_PASS || 'android' }}
         run: |
           set -euo pipefail
           umask 077
@@ -91,7 +91,7 @@ jobs:
             printf 'Signing: persistent maintainer key.\n' >> "$GITHUB_STEP_SUMMARY"
           else
             if [[ "$GITHUB_REF" == refs/tags/* ]]; then
-              echo 'Tag releases require ONYX_KEYSTORE_BASE64; no temporary release key will be generated.' >&2
+              echo 'Tag releases require PERIDOT_KEYSTORE_BASE64; no temporary release key will be generated.' >&2
               exit 1
             fi
             keytool -genkeypair -storetype JKS -keystore "$KEYSTORE" \
@@ -179,7 +179,7 @@ jobs:
       - name: Build pinned custom Flutter engine
         if: steps.engine.outputs.hit != 'true'
         env:
-          ONYX_FLUTTER_ENGINE_SRC: ${{ env.ENGINE_CHECKOUT }}/engine/src
+          PERIDOT_FLUTTER_ENGINE_SRC: ${{ env.ENGINE_CHECKOUT }}/engine/src
           EXPECTED_ENGINE_REV: ${{ steps.flutter.outputs.engine_rev }}
         run: |
           set -euo pipefail
@@ -206,14 +206,14 @@ jobs:
 
       - name: Build signed KernelSU Next / Magisk module
         env:
-          ONYX_NDK_VERSION: ${{ env.ANDROID_NDK }}
-          ONYX_BUILD_TOOLS_VERSION: ${{ env.ANDROID_BUILD_TOOLS }}
-          ONYX_PLATFORM_VERSION: '36'
-          ONYX_KEYSTORE: ${{ steps.signing.outputs.keystore }}
-          ONYX_EXPECTED_CERT_SHA256: ${{ steps.signing.outputs.cert_sha256 }}
-          ONYX_KEY_ALIAS: ${{ secrets.ONYX_KEY_ALIAS || 'peridot-essential' }}
-          ONYX_KEYSTORE_PASS: ${{ secrets.ONYX_KEYSTORE_PASS || 'android' }}
-          ONYX_KEY_PASS: ${{ secrets.ONYX_KEY_PASS || secrets.ONYX_KEYSTORE_PASS || 'android' }}
+          PERIDOT_NDK_VERSION: ${{ env.ANDROID_NDK }}
+          PERIDOT_BUILD_TOOLS_VERSION: ${{ env.ANDROID_BUILD_TOOLS }}
+          PERIDOT_PLATFORM_VERSION: '36'
+          PERIDOT_KEYSTORE: ${{ steps.signing.outputs.keystore }}
+          PERIDOT_EXPECTED_CERT_SHA256: ${{ steps.signing.outputs.cert_sha256 }}
+          PERIDOT_KEY_ALIAS: ${{ secrets.PERIDOT_KEY_ALIAS || 'peridot-essential' }}
+          PERIDOT_KEYSTORE_PASS: ${{ secrets.PERIDOT_KEYSTORE_PASS || 'android' }}
+          PERIDOT_KEY_PASS: ${{ secrets.PERIDOT_KEY_PASS || secrets.PERIDOT_KEYSTORE_PASS || 'android' }}
         run: bash tools/build-kernelsu-next-module.sh
 
       - name: Collect APK, module and checksums

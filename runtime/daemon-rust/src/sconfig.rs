@@ -12,7 +12,7 @@ pub(super) fn supported_mode(mode: i32) -> bool {
 }
 fn path() -> Result<PathBuf, String> {
     #[cfg(not(target_os = "android"))]
-    if let Some(value) = std::env::var_os("ONYX_TEST_SCONFIG_PATH") {
+    if let Some(value) = std::env::var_os("PERIDOT_TEST_SCONFIG_PATH") {
         return Ok(value.into());
     }
     PATHS

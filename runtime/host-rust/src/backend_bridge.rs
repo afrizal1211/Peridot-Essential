@@ -245,7 +245,7 @@ fn reverse_ipc() -> Option<&'static ReverseIpc> {
             let listener = match bind_listener(REVERSE_SOCKET_NAME) {
                 Ok(listener) => listener,
                 Err(error) => {
-                    peridot_action_log(format!("ONYX_REVERSE_IPC_BIND_FAIL error={error}"));
+                    peridot_action_log(format!("PERIDOT_REVERSE_IPC_BIND_FAIL error={error}"));
                     return None;
                 }
             };
@@ -266,7 +266,7 @@ fn reverse_ipc() -> Option<&'static ReverseIpc> {
                     }
                     let stream = unsafe { UnixStream::from_raw_fd(fd) };
                     if peer_uid(&stream) != Ok(0) {
-                        peridot_action_log("ONYX_REVERSE_IPC_PEER_REJECT non_root".into());
+                        peridot_action_log("PERIDOT_REVERSE_IPC_PEER_REJECT non_root".into());
                         continue;
                     }
                     if sender.send(stream).is_err() {
@@ -300,7 +300,7 @@ fn ensure_daemon_running() {
     let last = LAST_DAEMON_SPAWN.load(std::sync::atomic::Ordering::Acquire);
     if now.saturating_sub(last) >= 3 {
         LAST_DAEMON_SPAWN.store(now, std::sync::atomic::Ordering::Release);
-        app_log(b"ONYX_DAEMON_UNAVAILABLE init_service_required\0");
+        app_log(b"PERIDOT_DAEMON_UNAVAILABLE init_service_required\0");
     }
 }
 
@@ -1299,13 +1299,13 @@ fn perform_palette(cache: &Cache, op: i32, a: i32, b: i32) {
             for (index, value) in values {
                 cache.extended[index].store(value, Ordering::Release);
             }
-            peridot_action_log(format!("ONYX_SYSTEM_COLORS_PASS operation={op}"));
+            peridot_action_log(format!("PERIDOT_SYSTEM_COLORS_PASS operation={op}"));
             2
         }
         Err(error) => {
             cache.extended[error_index].store(palette_error_code(&error), Ordering::Release);
             peridot_action_log(format!(
-                "ONYX_SYSTEM_COLORS_FAIL operation={op} error={error}"
+                "PERIDOT_SYSTEM_COLORS_FAIL operation={op} error={error}"
             ));
             -1
         }
@@ -1338,16 +1338,16 @@ fn worker(cache: Arc<Cache>, rx: mpsc::Receiver<Command>) {
                     match refresh(&cache) {
                         Ok(()) => {
                             if !logged_pass {
-                                app_log(b"ONYX_BACKEND_APP=PASS protocol=peridot.4\0");
+                                app_log(b"PERIDOT_BACKEND_APP=PASS protocol=peridot.4\0");
                                 logged_pass = true;
                             }
                             logged_fail = false;
                         }
                         Err(error) => {
                             cache.ready.store(0, Ordering::Release);
-                            peridot_action_log(format!("ONYX_REFRESH_FAIL error={error}"));
+                            peridot_action_log(format!("PERIDOT_REFRESH_FAIL error={error}"));
                             if !logged_fail {
-                                app_log(b"ONYX_BACKEND_APP=FAIL socket_or_selinux\0");
+                                app_log(b"PERIDOT_BACKEND_APP=FAIL socket_or_selinux\0");
                                 logged_fail = true;
                             }
                         }
@@ -1384,14 +1384,14 @@ fn worker(cache: Arc<Cache>, rx: mpsc::Receiver<Command>) {
                         match refresh(&cache) {
                             Ok(()) => {
                                 peridot_action_log(format!(
-                                    "ONYX_ACTION_PASS action={name} elapsed_ms={elapsed}"
+                                    "PERIDOT_ACTION_PASS action={name} elapsed_ms={elapsed}"
                                 ));
                                 logged_fail = false;
                             }
                             Err(error) => {
                                 cache.ready.store(0, Ordering::Release);
                                 peridot_action_log(format!(
-                                    "ONYX_ACTION_REFRESH_FAIL action={name} elapsed_ms={elapsed} error={error}"
+                                    "PERIDOT_ACTION_REFRESH_FAIL action={name} elapsed_ms={elapsed} error={error}"
                                 ));
                             }
                         }
@@ -1409,7 +1409,7 @@ fn worker(cache: Arc<Cache>, rx: mpsc::Receiver<Command>) {
                         let _ = refresh(&cache);
 
                         peridot_action_log(format!(
-                            "ONYX_ACTION_FAIL action={name} elapsed_ms={elapsed} error={error}"
+                            "PERIDOT_ACTION_FAIL action={name} elapsed_ms={elapsed} error={error}"
                         ));
                     }
                 }
@@ -1428,7 +1428,7 @@ fn worker(cache: Arc<Cache>, rx: mpsc::Receiver<Command>) {
             match refresh(&cache) {
                 Ok(()) => {
                     if !logged_pass {
-                        app_log(b"ONYX_BACKEND_APP=PASS protocol=peridot.4\0");
+                        app_log(b"PERIDOT_BACKEND_APP=PASS protocol=peridot.4\0");
                         logged_pass = true;
                     }
                     logged_fail = false;
@@ -1436,7 +1436,7 @@ fn worker(cache: Arc<Cache>, rx: mpsc::Receiver<Command>) {
                 Err(_) => {
                     cache.ready.store(0, Ordering::Release);
                     if !logged_fail {
-                        app_log(b"ONYX_BACKEND_APP=FAIL socket_or_selinux\0");
+                        app_log(b"PERIDOT_BACKEND_APP=FAIL socket_or_selinux\0");
                         logged_fail = true;
                     }
                 }

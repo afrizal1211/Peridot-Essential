@@ -227,7 +227,7 @@ def main():
         if path == platform_policy:
             content = platform
         if path == product_policy:
-            content += '\n; BEGIN ONYX ESSENTIAL POLICY\n' + fragment + '\n; END ONYX ESSENTIAL POLICY\n'
+            content += '\n; BEGIN PERIDOT ESSENTIAL POLICY\n' + fragment + '\n; END PERIDOT ESSENTIAL POLICY\n'
         write(target, content)
         edited_inputs.append(target)
     edited_code, edited_log = compile_set(edited_inputs, validation / 'edited-strict', True, args.policy_version)

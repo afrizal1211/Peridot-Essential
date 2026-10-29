@@ -5,8 +5,8 @@ service peridot_daemon /product/bin/peridot_daemon
     capabilities DAC_OVERRIDE SYS_ADMIN SYS_NICE SYS_PTRACE
     priority -10
     oom_score_adjust -900
-    setenv ONYX_STATE_DIR /data/system/peridot-essential
-    setenv ONYX_TOUCH_DIRECT_INPUT 1
+    setenv PERIDOT_STATE_DIR /data/system/peridot-essential
+    setenv PERIDOT_TOUCH_DIRECT_INPUT 1
     disabled
     restart_period 2
 
