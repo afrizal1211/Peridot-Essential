@@ -1,0 +1,107 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  FLUTTER_VERSION: "3.24.5"
+  NDK_VERSION: "27b"
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+
+      - name: Flutter analyze + test
+        run: |
+          cd ui/flutter
+          flutter pub get
+          flutter analyze --no-fatal-infos
+          flutter test
+
+  daemon-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+
+      - name: Android NDK
+        uses: nick-fields/setup-android-ndk@v1
+        with:
+          ndk-version: ${{ env.NDK_VERSION }}
+
+      - name: Rust host test (service lifecycle)
+        run: |
+          cd runtime/daemon-rust
+          cargo test --lib -- --test-threads=1
+
+      - name: Rust Android cross-compile check
+        run: |
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android31-clang"
+          export RUSTFLAGS="-L native=$GITHUB_WORKSPACE/runtime/flutter-engine/prebuilt/android-arm64 -C link-arg=-Wl,-z,max-page-size=16384"
+          cargo build --release --target aarch64-linux-android --manifest-path=runtime/daemon-rust/Cargo.toml
+          cargo build --release --target aarch64-linux-android --manifest-path=runtime/host-rust/Cargo.toml
+
+  release:
+    needs: [check, daemon-check]
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request'
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+
+      - name: Android NDK
+        uses: nick-fields/setup-android-ndk@v1
+        with:
+          ndk-version: ${{ env.NDK_VERSION }}
+
+      - name: Download Flutter engine prebuilts
+        run: |
+          ENGINE_DIR="$GITHUB_WORKSPACE/runtime/flutter-engine/prebuilt/android-arm64"
+          mkdir -p "$ENGINE_DIR"
+          if [ ! -f "$ENGINE_DIR/libflutter_engine.so" ]; then
+            ENGINE_API="https://api.github.com/repos/flutter/engine/releases/tags/$FLUTTER_VERSION"
+            ASSET_URL=$(curl -sL "$ENGINE_API" \
+              | python3 -c "import sys,json; data=json.load(sys.stdin); [print(a['browser_download_url']) for a in data['assets'] if 'linux-x64.zip' in a['name']]" \
+              | head -1)
+            curl -sL "$ASSET_URL" -o /tmp/flutter-engine.zip
+            unzip -j /tmp/flutter-engine.zip \
+              "flutter/bin/cache/artifacts/engine/android-arm64-release/libflutter_engine.so" \
+              "flutter/bin/cache/artifacts/engine/android-arm64-release/icudtl.dat" \
+              -d "$ENGINE_DIR"
+          fi
+          ls -la "$ENGINE_DIR/"
+
+      - name: Build release APK
+        run: |
+          cd ui/flutter
+          flutter pub get
+          flutter build apk --release \
+            --target-platform=android-arm64 \
+            --split-debug-info=../../../out/debug-symbols
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: peridot-essential-apk
+          path: ui/flutter/build/app/outputs/flutter-apk/app-release.apk
+          retention-days: 14
