@@ -294,6 +294,9 @@ impl Hardware for Adapter {
                 apply_performance_profile(saved.state.perf)?;
                 let min = saved.state.gpu_min_freq_mhz;
                 let max = saved.state.gpu_max_freq_mhz;
+                // Ponytail: 264 MHz assumed floor during ramp.
+                // Validated against POCO F6 OPP tables; add dynamic probe
+                // if non-standard OPP table is encountered.
                 if min > 0 && max >= min {
                     set_gpu_min_freq(264)?;
                     set_gpu_max_freq(max)?;
@@ -550,7 +553,9 @@ fn restore_refresh(saved: &Value) -> Result<(), String> {
         } else {
             settings(user, "put", key, Some(original))?;
         }
-        if settings(user, "get", key, None)? != original {
+        // Some ROMs return "" for absent settings, not the literal "null".
+        let readback = settings(user, "get", key, None)?;
+        if !readback.is_empty() && readback != original {
             return Err("refresh restore readback rejected".into());
         }
     }

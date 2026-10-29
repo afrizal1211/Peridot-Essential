@@ -115,7 +115,7 @@ trap 'exit 0' HUP INT TERM
 peridot_stop_native_services() {
     [ "$PERIDOT_NATIVE_MODE" -eq 1 ] || return 0
 
-    for PERIDOT_NATIVE_SERVICE in peridot_daemon peridot_essentiald; do
+    for PERIDOT_NATIVE_SERVICE in peridot_daemon; do
         PERIDOT_NATIVE_STATE="$(getprop "init.svc.$PERIDOT_NATIVE_SERVICE" 2>/dev/null)"
         case "$PERIDOT_NATIVE_STATE" in
             ''|stopped) ;;
@@ -126,7 +126,7 @@ peridot_stop_native_services() {
     PERIDOT_STOP_ATTEMPT=0
     while [ "$PERIDOT_STOP_ATTEMPT" -lt 10 ]; do
         PERIDOT_NATIVE_RUNNING=0
-        for PERIDOT_NATIVE_SERVICE in peridot_daemon peridot_essentiald; do
+        for PERIDOT_NATIVE_SERVICE in peridot_daemon; do
             PERIDOT_NATIVE_STATE="$(getprop "init.svc.$PERIDOT_NATIVE_SERVICE" 2>/dev/null)"
             case "$PERIDOT_NATIVE_STATE" in
                 starting|running|restarting|stopping) PERIDOT_NATIVE_RUNNING=1 ;;
@@ -140,13 +140,13 @@ peridot_stop_native_services() {
 }
 
 peridot_kill_existing_daemons() {
-    for PERIDOT_PROCESS_NAME in peridot_daemon peridot_essentiald; do
+    for PERIDOT_PROCESS_NAME in peridot_daemon; do
         for PERIDOT_PID in $(pidof "$PERIDOT_PROCESS_NAME" 2>/dev/null); do
             kill "$PERIDOT_PID" 2>/dev/null
         done
     done
     sleep 1
-    for PERIDOT_PROCESS_NAME in peridot_daemon peridot_essentiald; do
+    for PERIDOT_PROCESS_NAME in peridot_daemon; do
         for PERIDOT_PID in $(pidof "$PERIDOT_PROCESS_NAME" 2>/dev/null); do
             kill -9 "$PERIDOT_PID" 2>/dev/null
         done

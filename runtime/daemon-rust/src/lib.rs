@@ -896,10 +896,16 @@ fn write_charging_if_present(path: &Path, value: &str) -> Result<Option<String>,
 }
 
 fn apply_charging_profile(profile: i32) -> Result<(), String> {
+    // Profile 0 = OEM default (no daemon intervention needed).
+    // Profiles 1-4 are defined in the UI but hardware calibration has never
+    // been populated. Until charging_calibration is written (factory test),
+    // all non-zero profiles silently retain OEM behaviour.
     if profile == 0 {
         return Ok(());
     }
-    Err("Peridot charging tiers are not calibrated; OEM charging remains active".into())
+    // Ponytail: OEM charging is active; charging_calibration never written.
+    // Add real write path when hardware calibration data is available.
+    Err("charging tiers unimplemented; OEM charging active".into())
 }
 
 #[cfg(target_os = "android")]
@@ -4669,6 +4675,10 @@ fn compact_zram() -> Result<(), String> {
 }
 
 // MALI GPU & MEDIATEK GED HELPERS
+// Ponytail: SM8635 (POCO F6 / Peridot) is a Qualcomm/Adreno device.
+// These stubs exist only because the upstream NeonEssential also supported
+// MediaTek devices. All callers handle Err gracefully; the stubs are dead
+// code on Peridot hardware. Remove when upstream drops MediaTek support.
 
 fn gpu_read_file(primary: &str, fallback: &str) -> Option<String> {
     fs::read_to_string(primary)
