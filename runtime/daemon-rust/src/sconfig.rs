@@ -8,7 +8,7 @@ const PATHS: [&str; 2] = [
 ];
 static LOCK: Mutex<()> = Mutex::new(());
 pub(super) fn supported_mode(mode: i32) -> bool {
-    matches!(mode, 0 | 6 | 18 | 50 | 56 | 68)
+    matches!(mode, 0 | 6 | 18 | 50)
 }
 fn path() -> Result<PathBuf, String> {
     #[cfg(not(target_os = "android"))]
