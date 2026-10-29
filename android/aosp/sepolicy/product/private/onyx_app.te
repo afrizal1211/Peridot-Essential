@@ -1,0 +1,7 @@
+type peridot_app, domain;
+typeattribute peridot_app coredomain;
+app_domain(peridot_app)
+untrusted_app_domain(peridot_app)
+# Ordinary application networking, including the authenticated module fallback
+# when a signature-compatible module updates a ROM-native installation.
+net_domain(peridot_app)

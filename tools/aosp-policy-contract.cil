@@ -1,0 +1,121 @@
+(type peridot_daemon_release_probe)
+(typeattributeset domain (peridot_daemon_release_probe))
+(typeattributeset coredomain (peridot_daemon_release_probe))
+(typeattributeset mlstrustedsubject (peridot_daemon_release_probe))
+(typeattributeset peridot_native_touch_access (peridot_daemon_release_probe))
+
+(type peridot_app_release_probe)
+(typeattributeset domain (peridot_app_release_probe))
+(typeattributeset coredomain (peridot_app_release_probe))
+(typeattributeset appdomain (peridot_app_release_probe))
+(typeattributeset untrusted_app_all (peridot_app_release_probe))
+
+(type peridot_daemon_data_release_probe)
+(typeattributeset file_type (peridot_daemon_data_release_probe))
+(typeattributeset data_file_type (peridot_daemon_data_release_probe))
+(typeattributeset core_data_file_type (peridot_daemon_data_release_probe))
+
+(type peridot_mali_devfreq_release_probe)
+(typeattributeset fs_type (peridot_mali_devfreq_release_probe))
+(typeattributeset sysfs_type (peridot_mali_devfreq_release_probe))
+
+(type peridot_battery_supply_release_probe)
+(typeattributeset fs_type (peridot_battery_supply_release_probe))
+(typeattributeset sysfs_type (peridot_battery_supply_release_probe))
+
+(type peridot_sysfs_rw_release_probe)
+(typeattributeset fs_type (peridot_sysfs_rw_release_probe))
+(typeattributeset sysfs_type (peridot_sysfs_rw_release_probe))
+
+(type peridot_proc_rw_release_probe)
+(typeattributeset fs_type (peridot_proc_rw_release_probe))
+(typeattributeset proc_type (peridot_proc_rw_release_probe))
+
+(type peridot_swap_block_release_probe)
+(typeattributeset dev_type (peridot_swap_block_release_probe))
+
+(type peridot_input_device_release_probe)
+(typeattributeset dev_type (peridot_input_device_release_probe))
+
+(type peridot_touch_hal_release_probe)
+(typeattributeset domain (peridot_touch_hal_release_probe))
+(typeattributeset halserverdomain (peridot_touch_hal_release_probe))
+
+(type peridot_display_hal_release_probe)
+(typeattributeset domain (peridot_display_hal_release_probe))
+(typeattributeset halserverdomain (peridot_display_hal_release_probe))
+
+(type peridot_hal_service_release_probe)
+(typeattributeset service_manager_type (peridot_hal_service_release_probe))
+(typeattributeset protected_service (peridot_hal_service_release_probe))
+(typeattributeset hal_service_type (peridot_hal_service_release_probe))
+
+(allow peridot_daemon_release_probe self (capability
+    (dac_override sys_admin sys_nice sys_ptrace)))
+(allow peridot_daemon_release_probe self (unix_stream_socket
+    (create ioctl read getattr write setattr lock append bind connect listen
+     accept getopt setopt shutdown map)))
+(allow peridot_daemon_release_probe self (netlink_kobject_uevent_socket
+    (create bind read getattr getopt setopt)))
+
+(allow peridot_daemon_release_probe peridot_daemon_data_release_probe
+    (dir (add_name create getattr ioctl lock open read remove_name search
+          setattr write)))
+(allow peridot_daemon_release_probe peridot_daemon_data_release_probe
+    (file (append create getattr ioctl lock map open read rename setattr unlink
+           write)))
+
+(allow peridot_app_release_probe peridot_daemon_release_probe
+    (unix_stream_socket (connectto)))
+
+(allow peridot_daemon_release_probe sysfs (dir (search)))
+(allow peridot_daemon_release_probe peridot_mali_devfreq_release_probe (dir (getattr search open read)))
+(allow peridot_daemon_release_probe peridot_mali_devfreq_release_probe (file (getattr open read write ioctl lock map)))
+(allow peridot_daemon_release_probe peridot_battery_supply_release_probe (file (getattr open read write ioctl lock map)))
+
+(allow peridot_daemon_release_probe peridot_sysfs_rw_release_probe
+    (dir (getattr open read search)))
+(allow peridot_daemon_release_probe peridot_sysfs_rw_release_probe
+    (file (getattr ioctl lock map open read write)))
+(allow peridot_daemon_release_probe peridot_proc_rw_release_probe
+    (file (getattr ioctl lock map open read write)))
+(allow peridot_daemon_release_probe peridot_swap_block_release_probe
+    (blk_file (getattr ioctl lock map open read write)))
+(allow peridot_daemon_release_probe peridot_input_device_release_probe
+    (chr_file (getattr ioctl lock map open read write)))
+
+(allow peridot_daemon_release_probe peridot_touch_hal_release_probe
+    (binder (call transfer)))
+(allow peridot_touch_hal_release_probe peridot_daemon_release_probe
+    (binder (transfer)))
+(allow peridot_daemon_release_probe peridot_touch_hal_release_probe (fd (use)))
+(allow peridot_daemon_release_probe peridot_touch_hal_release_probe (process (ptrace)))
+(allow peridot_daemon_release_probe peridot_touch_hal_release_probe (dir (search)))
+(allow peridot_daemon_release_probe peridot_touch_hal_release_probe (file (getattr open read write)))
+
+(allow peridot_daemon_release_probe peridot_display_hal_release_probe
+    (binder (call transfer)))
+(allow peridot_display_hal_release_probe peridot_daemon_release_probe
+    (binder (transfer)))
+(allow peridot_daemon_release_probe peridot_display_hal_release_probe (fd (use)))
+(allow peridot_daemon_release_probe peridot_hal_service_release_probe
+    (service_manager (find)))
+
+(allow peridot_daemon_release_probe system_server (binder (call transfer)))
+(allow system_server peridot_daemon_release_probe (binder (transfer)))
+(allow peridot_daemon_release_probe system_server (fd (use)))
+(allow system_server peridot_daemon_release_probe (fd (use)))
+(allow system_server peridot_daemon_release_probe (fifo_file (write)))
+(allow peridot_daemon_release_probe display_service (service_manager (find)))
+(allow peridot_daemon_release_probe power_service (service_manager (find)))
+(allow peridot_daemon_release_probe settings_service (service_manager (find)))
+(allow peridot_daemon_release_probe window_service (service_manager (find)))
+(allow peridot_daemon_release_probe activity_service (service_manager (find)))
+(allow peridot_daemon_release_probe package_service (service_manager (find)))
+(allow peridot_daemon_release_probe logd (unix_stream_socket (connectto)))
+(allow peridot_daemon_release_probe logdr_socket (sock_file (write)))
+(allow peridot_daemon_release_probe overlay_service (service_manager (find)))
+(allow peridot_daemon_release_probe system_file
+    (file (execute execute_no_trans getattr map open read)))
+(allow peridot_daemon_release_probe toolbox_exec
+    (file (execute execute_no_trans getattr map open read)))

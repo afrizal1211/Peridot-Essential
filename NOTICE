@@ -1,0 +1,14 @@
+Peridot Essential — POCO F7 adaptation
+
+Based on Rodin Essential by NEESCHAL-3 and its contributors.
+Original project: https://github.com/NEESCHAL-3/Rodin-Essential
+Source fork: https://github.com/davvv98/Peridot-Essential
+Baseline commit: d2ac2fcdb35943088258e9bd30dbb0e2266203c2
+
+Peridot modifications maintained by davvv98,
+with AI-assisted development: POCO F7 CPU/KGSL backend changes,
+requested/effective limit handling, Xiaomi Sconfig controls, Peridot identity,
+icons, build adjustments and device-specific documentation.
+
+Original project and dependency authors retain credit for their work.
+See LICENSE and the notices in the source code.

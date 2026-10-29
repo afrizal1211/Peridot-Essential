@@ -1,0 +1,253 @@
+name: peridot-release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+concurrency:
+  group: peridot-release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    permissions:
+      contents: write
+    defaults:
+      run:
+        shell: bash
+    env:
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+      FLUTTER_SDK: ${{ github.workspace }}/../flutter-sdk
+      DEPOT_TOOLS: ${{ github.workspace }}/../depot_tools
+      ENGINE_CHECKOUT: ${{ github.workspace }}/../flutter-engine-source
+      FLUTTER_VERSION: '3.47.7'
+      ANDROID_BUILD_TOOLS: '36.0.0'
+      ANDROID_NDK: '27.2.12479018'
+      CI: 'true'
+      FLUTTER_SUPPRESS_ANALYTICS: 'true'
+      DART_SUPPRESS_ANALYTICS: 'true'
+
+    steps:
+      - name: Checkout Peridot sources
+        uses: actions/checkout@v4
+
+      - name: Validate source layout
+        run: |
+          set -euo pipefail
+          bash tools/cleanup-legacy-paths.sh
+          test -f Cargo.toml
+          test -f runtime/daemon-rust/src/peridot.rs
+          test -f ui/flutter/pubspec.yaml
+          test -f tools/build-kernelsu-next-module.sh
+          grep -Fq 'peridot.4' runtime/daemon-rust/src/lib.rs
+
+      - name: Free disk space for engine sources
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /opt/hostedtoolcache/CodeQL \
+            /usr/local/lib/node_modules /opt/az
+          df -h /
+
+      - name: Install host tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build pkg-config curl unzip zip \
+            python3 openjdk-17-jdk git file binutils clang cmake
+          java -version
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - name: Run daemon and packaging checks
+        run: |
+          set -euo pipefail
+          python3 tools/tests/test_daemon_binary_layout.py
+          cargo test --locked -p peridot-essential-daemon
+          bash tools/test-root-module-contract.sh
+          bash tools/test-release-sync.sh
+          bash tools/test-kernelsu-watchdog-lock.sh
+
+      - name: Prepare signing key
+        id: signing
+        env:
+          SIGNING_KEY_B64: ${{ secrets.ONYX_KEYSTORE_BASE64 }}
+          SIGNING_ALIAS: ${{ secrets.ONYX_KEY_ALIAS || 'peridot-essential' }}
+          SIGNING_STORE_PASS: ${{ secrets.ONYX_KEYSTORE_PASS || 'android' }}
+          SIGNING_KEY_PASS: ${{ secrets.ONYX_KEY_PASS || secrets.ONYX_KEYSTORE_PASS || 'android' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          KEYSTORE="$RUNNER_TEMP/peridot-signing.jks"
+          if [ -n "$SIGNING_KEY_B64" ]; then
+            printf '%s' "$SIGNING_KEY_B64" | base64 --decode > "$KEYSTORE"
+            printf 'Signing: persistent maintainer key.\n' >> "$GITHUB_STEP_SUMMARY"
+          else
+            if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+              echo 'Tag releases require ONYX_KEYSTORE_BASE64; no temporary release key will be generated.' >&2
+              exit 1
+            fi
+            keytool -genkeypair -storetype JKS -keystore "$KEYSTORE" \
+              -alias "$SIGNING_ALIAS" -keyalg RSA -keysize 4096 -validity 9125 \
+              -storepass:env SIGNING_STORE_PASS -keypass:env SIGNING_KEY_PASS \
+              -dname 'CN=Peridot Essential CI,O=Peridot Essential,C=MX'
+            printf 'Signing: temporary CI key; this build cannot update installations signed with another key.\n' >> "$GITHUB_STEP_SUMMARY"
+          fi
+          keytool -exportcert -keystore "$KEYSTORE" -alias "$SIGNING_ALIAS" \
+            -storepass:env SIGNING_STORE_PASS -file "$RUNNER_TEMP/peridot-cert.der"
+          CERT_SHA256="$(sha256sum "$RUNNER_TEMP/peridot-cert.der" | awk '{print $1}')"
+          echo "keystore=$KEYSTORE" >> "$GITHUB_OUTPUT"
+          echo "cert_sha256=$CERT_SHA256" >> "$GITHUB_OUTPUT"
+
+      - name: Clone pinned Flutter SDK
+        id: flutter
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch "$FLUTTER_VERSION" \
+            https://github.com/flutter/flutter.git "$FLUTTER_SDK"
+          echo "$FLUTTER_SDK/bin" >> "$GITHUB_PATH"
+          EXPECTED="$(tr -d '[:space:]' < "$FLUTTER_SDK/bin/internal/engine.version")"
+          export PATH="$FLUTTER_SDK/bin:$PATH"
+          flutter --version
+          flutter precache --android
+          ACTUAL="$(tr -d '[:space:]' < "$FLUTTER_SDK/bin/internal/engine.version")"
+          test "$EXPECTED" = "$ACTUAL"
+          echo "engine_rev=$ACTUAL" >> "$GITHUB_OUTPUT"
+
+      - name: Restore custom Flutter embedder engine
+        uses: actions/cache@v4
+        with:
+          path: |
+            runtime/flutter-engine/prebuilt/android-arm64
+            runtime/flutter-engine/include/embedder.h
+          key: peridot-embedder-ubuntu24-arm64-v1-${{ steps.flutter.outputs.engine_rev }}-${{ hashFiles('tools/build-flutter-engine.sh') }}
+
+      - name: Verify engine cache
+        id: engine
+        env:
+          EXPECTED_ENGINE_REV: ${{ steps.flutter.outputs.engine_rev }}
+        run: |
+          set -euo pipefail
+          DIR=runtime/flutter-engine/prebuilt/android-arm64
+          if [ -s "$DIR/libflutter_engine.so" ] && [ -s "$DIR/icudtl.dat" ] \
+            && [ -s runtime/flutter-engine/include/embedder.h ] \
+            && [ "$(cat "$DIR/engine-revision.txt" 2>/dev/null || true)" = "$EXPECTED_ENGINE_REV" ]; then
+            echo 'hit=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'hit=false' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up depot_tools
+        if: steps.engine.outputs.hit != 'true'
+        run: |
+          git clone --depth 1 https://chromium.googlesource.com/chromium/tools/depot_tools.git "$DEPOT_TOOLS"
+          echo "$DEPOT_TOOLS" >> "$GITHUB_PATH"
+
+      - name: Sync pinned engine sources in a separate checkout
+        if: steps.engine.outputs.hit != 'true'
+        env:
+          EXPECTED_ENGINE_REV: ${{ steps.flutter.outputs.engine_rev }}
+        run: |
+          set -euo pipefail
+          # engine.version can differ from the SDK tag commit. Never move the SDK.
+          git init "$ENGINE_CHECKOUT"
+          git -C "$ENGINE_CHECKOUT" remote add origin https://github.com/flutter/flutter.git
+          git -C "$ENGINE_CHECKOUT" fetch --depth 1 origin "$EXPECTED_ENGINE_REV"
+          git -C "$ENGINE_CHECKOUT" checkout --detach FETCH_HEAD
+          cd "$ENGINE_CHECKOUT"
+          cp engine/scripts/standard.gclient .gclient
+          SYNCED=0
+          for attempt in 1 2 3; do
+            if gclient sync --revision "$EXPECTED_ENGINE_REV"; then
+              SYNCED=1
+              break
+            fi
+            echo "gclient sync attempt $attempt failed."
+            if [ "$attempt" -lt 3 ]; then sleep 15; fi
+          done
+          test "$SYNCED" -eq 1
+          test "$(git rev-parse HEAD)" = "$EXPECTED_ENGINE_REV"
+          df -h /
+
+      - name: Build pinned custom Flutter engine
+        if: steps.engine.outputs.hit != 'true'
+        env:
+          ONYX_FLUTTER_ENGINE_SRC: ${{ env.ENGINE_CHECKOUT }}/engine/src
+          EXPECTED_ENGINE_REV: ${{ steps.flutter.outputs.engine_rev }}
+        run: |
+          set -euo pipefail
+          test "$(tr -d '[:space:]' < "$FLUTTER_SDK/bin/internal/engine.version")" = "$EXPECTED_ENGINE_REV"
+          bash tools/build-flutter-engine.sh
+          printf '%s\n' "$EXPECTED_ENGINE_REV" > runtime/flutter-engine/prebuilt/android-arm64/engine-revision.txt
+
+      - name: Install pinned Android toolchains
+        run: |
+          set -euo pipefail
+          SDKMANAGER="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          # yes receives SIGPIPE after sdkmanager finishes reading licenses.
+          set +o pipefail
+          yes | "$SDKMANAGER" --licenses >/dev/null
+          LICENSE_STATUS="${PIPESTATUS[1]}"
+          set -o pipefail
+          test "$LICENSE_STATUS" -eq 0
+          "$SDKMANAGER" 'platform-tools' 'platforms;android-36' \
+            "build-tools;$ANDROID_BUILD_TOOLS" "ndk;$ANDROID_NDK"
+
+      - name: Resolve Flutter dependencies
+        working-directory: ui/flutter
+        run: flutter pub get
+
+      - name: Build signed KernelSU Next / Magisk module
+        env:
+          ONYX_NDK_VERSION: ${{ env.ANDROID_NDK }}
+          ONYX_BUILD_TOOLS_VERSION: ${{ env.ANDROID_BUILD_TOOLS }}
+          ONYX_PLATFORM_VERSION: '36'
+          ONYX_KEYSTORE: ${{ steps.signing.outputs.keystore }}
+          ONYX_EXPECTED_CERT_SHA256: ${{ steps.signing.outputs.cert_sha256 }}
+          ONYX_KEY_ALIAS: ${{ secrets.ONYX_KEY_ALIAS || 'peridot-essential' }}
+          ONYX_KEYSTORE_PASS: ${{ secrets.ONYX_KEYSTORE_PASS || 'android' }}
+          ONYX_KEY_PASS: ${{ secrets.ONYX_KEY_PASS || secrets.ONYX_KEYSTORE_PASS || 'android' }}
+        run: bash tools/build-kernelsu-next-module.sh
+
+      - name: Collect APK, module and checksums
+        run: |
+          set -euo pipefail
+          mkdir -p out/peridot-artifacts
+          mapfile -t MODULES < <(find out/kernelsu-next -mindepth 2 -maxdepth 2 -type f -name '*.zip')
+          test "${#MODULES[@]}" -eq 1
+          cp "${MODULES[0]}" out/peridot-artifacts/Peridot-Essential-KernelSU-Next-Magisk.zip
+          unzip -p "${MODULES[0]}" app/PeridotEssential.apk > out/peridot-artifacts/Peridot-Essential.apk
+          test -s out/peridot-artifacts/Peridot-Essential.apk
+          cd out/peridot-artifacts
+          sha256sum ./*.zip ./*.apk > SHA256SUMS.txt
+
+      - name: Upload APK and module
+        uses: actions/upload-artifact@v4
+        with:
+          name: Peridot-Essential-Poco-F7
+          path: out/peridot-artifacts/
+          if-no-files-found: error
+
+      - name: Publish GitHub Release on version tags
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF#refs/tags/}"
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --verify-tag --title "Peridot Essential $TAG" \
+              --notes 'POCO F7 (peridot), Snapdragon 8s Gen 4. CPU/KGSL adaptation with Xiaomi DisplayFeature; touch-rate and charging tiers remain pending device validation.'
+          fi
+          gh release upload "$TAG" out/peridot-artifacts/* --clobber
+
+      - name: Remove temporary signing material
+        if: always()
+        run: rm -f "$RUNNER_TEMP/peridot-signing.jks" "$RUNNER_TEMP/peridot-cert.der"

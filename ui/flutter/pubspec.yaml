@@ -1,0 +1,21 @@
+name: peridot_essential_ui
+description: Peridot Essential zero-DEX Flutter AOT interface.
+publish_to: "none"
+version: 1.18.5+11805
+
+environment:
+  sdk: ">=3.12.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  material_color_utilities: 0.13.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/app_icon.png

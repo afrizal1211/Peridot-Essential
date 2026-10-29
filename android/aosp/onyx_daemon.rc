@@ -1,0 +1,19 @@
+service peridot_daemon /product/bin/peridot_daemon
+    class late_start
+    user root
+    group root system package_info input graphics wakelock
+    capabilities DAC_OVERRIDE SYS_ADMIN SYS_NICE SYS_PTRACE
+    priority -10
+    oom_score_adjust -900
+    setenv ONYX_STATE_DIR /data/system/peridot-essential
+    setenv ONYX_TOUCH_DIRECT_INPUT 1
+    disabled
+    restart_period 2
+
+on post-fs-data
+    restorecon /product/bin/peridot_daemon
+    mkdir /data/system/peridot-essential 0700 root root
+    restorecon_recursive /data/system/peridot-essential
+
+on property:sys.boot_completed=1
+    start peridot_daemon

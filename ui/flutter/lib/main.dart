@@ -1,0 +1,16661 @@
+import 'dart:io';
+import 'dart:convert';
+import 'dart:typed_data';
+import 'dart:ui' as ui;
+import 'dart:async';
+import 'dart:math' as math;
+
+import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart' show Drag;
+import 'package:flutter/rendering.dart';
+import 'package:flutter/physics.dart';
+import 'package:flutter/scheduler.dart';
+
+import 'aurora_game_engine.dart';
+import 'release_identity.dart';
+import 'page_motion.dart';
+import 'root_pager.dart';
+import 'touch_light.dart';
+import 'hub_headline.dart';
+import 'motion_diagnostics.dart';
+
+import 'backend/peridot_backend.dart';
+import 'backend/per_app_backend.dart';
+import 'backend/bypass_telemetry.dart';
+import 'bypass_threshold_selector.dart';
+import 'backend/system_colors_library.dart';
+import 'system_colors_preview.dart';
+import 'service_confirmation.dart';
+import 'bottom_feedback.dart';
+import 'slider_style.dart';
+import 'surface_lines.dart';
+
+part 'system_colors.dart';
+part 'per_app_controls.dart';
+part 'easter_eggs.dart';
+part 'aurora_drift.dart';
+part 'subsystem_clocks.dart';
+
+void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+  runApp(const _PeridotLaunchFrame());
+
+  unawaited(PeridotThemeController.bootstrap());
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    // Native startup is already connecting asynchronously. Read that cache
+    // before building the dashboard, without delaying the initial white frame.
+    PeridotBackend.instance.start();
+    runApp(const PeridotEssentialApp());
+  });
+}
+
+class _PeridotLaunchFrame extends StatelessWidget {
+  const _PeridotLaunchFrame();
+
+  @override
+  Widget build(BuildContext context) {
+    return const ColoredBox(color: Colors.white);
+  }
+}
+
+enum PeridotScreen {
+  home,
+  hubs,
+  support,
+  settings,
+  charging,
+  touchBoost,
+  displayStudio,
+  cpuControl,
+  advancedConfiguration,
+  resolution,
+  diagnostics,
+  zramSwap,
+  maliGpu,
+  systemColors,
+  perAppControls,
+  subsystemClocks,
+}
+
+extension PeridotScreenName on PeridotScreen {
+  String get title {
+    switch (this) {
+      case PeridotScreen.home:
+        return 'Peridot Essential';
+      case PeridotScreen.hubs:
+        return 'Control Hubs';
+      case PeridotScreen.support:
+        return 'Community & Support';
+      case PeridotScreen.settings:
+        return 'Settings';
+      case PeridotScreen.charging:
+        return 'Charging';
+      case PeridotScreen.touchBoost:
+        return 'Touch Response';
+      case PeridotScreen.displayStudio:
+        return 'Display Studio';
+      case PeridotScreen.cpuControl:
+        return 'CPU Core & Frequency';
+      case PeridotScreen.advancedConfiguration:
+        return 'Advanced Configuration';
+      case PeridotScreen.resolution:
+        return 'Resolution';
+      case PeridotScreen.diagnostics:
+        return 'Diagnostics';
+      case PeridotScreen.zramSwap:
+        return 'ZRAM & Swap Manager';
+      case PeridotScreen.maliGpu:
+        return 'Adreno GPU & KGSL';
+      case PeridotScreen.systemColors:
+        return 'System Colors';
+      case PeridotScreen.perAppControls:
+        return 'Per-App Controls';
+      case PeridotScreen.subsystemClocks:
+        return 'Memory DVFS & UFS';
+    }
+  }
+
+  bool get isRoot =>
+      this == PeridotScreen.home ||
+      this == PeridotScreen.hubs ||
+      this == PeridotScreen.support ||
+      this == PeridotScreen.settings;
+}
+
+enum PeridotThemePreference { system, light, dark }
+
+class PeridotThemeController {
+  const PeridotThemeController._();
+
+  static final ValueNotifier<ThemeMode> mode = ValueNotifier<ThemeMode>(
+    ThemeMode.system,
+  );
+
+  static ThemeMode themeMode(PeridotThemePreference preference) {
+    return switch (preference) {
+      PeridotThemePreference.system => ThemeMode.system,
+      PeridotThemePreference.light => ThemeMode.light,
+      PeridotThemePreference.dark => ThemeMode.dark,
+    };
+  }
+
+  static PeridotThemePreference preferenceFromName(String? name) {
+    return PeridotThemePreference.values.firstWhere(
+      (PeridotThemePreference value) => value.name == name,
+      orElse: () => PeridotThemePreference.system,
+    );
+  }
+
+  static void setPreference(PeridotThemePreference preference) {
+    mode.value = themeMode(preference);
+  }
+
+  static Future<void> bootstrap() async {
+    try {
+      final File file = File(
+        '${Directory.systemTemp.parent.path}'
+        '/files/peridot-appearance.json',
+      );
+
+      if (!await file.exists()) {
+        return;
+      }
+
+      final Object? raw = jsonDecode(await file.readAsString());
+
+      if (raw is! Map<String, dynamic>) {
+        return;
+      }
+
+      setPreference(preferenceFromName(raw['themeMode']?.toString()));
+    } catch (_) {
+      mode.value = ThemeMode.system;
+    }
+  }
+}
+
+class PeridotEssentialApp extends StatelessWidget {
+  const PeridotEssentialApp({super.key});
+
+  static const Color _darkBackground = Color(0xFF000000);
+  static const Color _darkSurface = Color(0xFF000000);
+  static const Color _darkSurfaceVariant = Color(0xFF080808);
+  static const Color _darkPrimary = Color(0xFF59BCFF);
+  static const Color _darkSecondary = Color(0xFF4CDEB6);
+  static const Color _darkTertiary = Color(0xFFFFB95E);
+  static const Color _darkOnSurface = Color(0xFFF4F7FB);
+  static const Color _darkOnSurfaceVariant = Color(0xFFAEB8C5);
+  static const Color _darkOutline = Color(0xFF1C1C1C);
+
+  static const Color _lightBackground = Color(0xFFF4F7FB);
+  static const Color _lightSurface = Color(0xFFFCFDFF);
+  static const Color _lightSurfaceVariant = Color(0xFFEEF3F8);
+  static const Color _lightPrimary = Color(0xFF087AC7);
+  static const Color _lightSecondary = Color(0xFF078F79);
+  static const Color _lightTertiary = Color(0xFFB8730A);
+  static const Color _lightOnSurface = Color(0xFF111925);
+  static const Color _lightOnSurfaceVariant = Color(0xFF566477);
+  static const Color _lightOutline = Color(0xFFD2DCE7);
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<ThemeMode>(
+      valueListenable: PeridotThemeController.mode,
+      builder: (BuildContext context, ThemeMode themeMode, Widget? child) {
+        return MaterialApp(
+          title: 'Peridot Essential',
+          debugShowCheckedModeBanner: false,
+          scrollBehavior: const PeridotScrollBehavior(),
+          themeMode: themeMode,
+          theme: _theme(
+            brightness: Brightness.light,
+            background: _lightBackground,
+            surface: _lightSurface,
+            surfaceVariant: _lightSurfaceVariant,
+            primary: _lightPrimary,
+            secondary: _lightSecondary,
+            tertiary: _lightTertiary,
+            onSurface: _lightOnSurface,
+            onSurfaceVariant: _lightOnSurfaceVariant,
+            outline: _lightOutline,
+          ),
+          darkTheme: _theme(
+            brightness: Brightness.dark,
+            background: _darkBackground,
+            surface: _darkSurface,
+            surfaceVariant: _darkSurfaceVariant,
+            primary: _darkPrimary,
+            secondary: _darkSecondary,
+            tertiary: _darkTertiary,
+            onSurface: _darkOnSurface,
+            onSurfaceVariant: _darkOnSurfaceVariant,
+            outline: _darkOutline,
+          ),
+          home: const PeridotShell(),
+        );
+      },
+    );
+  }
+
+  ThemeData _theme({
+    required Brightness brightness,
+    required Color background,
+    required Color surface,
+    required Color surfaceVariant,
+    required Color primary,
+    required Color secondary,
+    required Color tertiary,
+    required Color onSurface,
+    required Color onSurfaceVariant,
+    required Color outline,
+  }) {
+    final ColorScheme scheme = ColorScheme.fromSeed(
+      seedColor: primary,
+      brightness: brightness,
+      surface: surface,
+      primary: primary,
+      secondary: secondary,
+      tertiary: tertiary,
+      onSurface: onSurface,
+      outline: outline,
+    );
+
+    final TextTheme textTheme = brightness == Brightness.dark
+        ? Typography.material2021().white
+        : Typography.material2021().black;
+
+    return ThemeData(
+      useMaterial3: true,
+      brightness: brightness,
+      scaffoldBackgroundColor: background,
+      colorScheme: scheme.copyWith(
+        surface: surface,
+        surfaceContainer: surfaceVariant,
+        surfaceContainerLow: surfaceVariant,
+        surfaceContainerHighest: surfaceVariant,
+        onSurface: onSurface,
+        onSurfaceVariant: onSurfaceVariant,
+        outline: outline,
+      ),
+      textTheme: textTheme.apply(bodyColor: onSurface, displayColor: onSurface),
+      sliderTheme: peridotSliderTheme(accent: primary, outline: outline),
+      dividerTheme: DividerThemeData(
+        color: PeridotSurfaceLines.divider(scheme),
+        thickness: 0.8,
+      ),
+    );
+  }
+}
+
+class PeridotShell extends StatefulWidget {
+  const PeridotShell({super.key});
+
+  @override
+  State<PeridotShell> createState() => _PeridotShellState();
+}
+
+class _PeridotShellState extends State<PeridotShell>
+    with WidgetsBindingObserver, SingleTickerProviderStateMixin {
+  static const List<PeridotScreen> _rootOrder = <PeridotScreen>[
+    PeridotScreen.home,
+    PeridotScreen.hubs,
+    PeridotScreen.support,
+    PeridotScreen.settings,
+  ];
+
+  final PageController _rootController = PageController(initialPage: 0);
+  final GlobalKey<PeridotRootPagerState> _rootPagerKey =
+      GlobalKey<PeridotRootPagerState>();
+  final ValueNotifier<PeridotAppearanceConfig> _appearance =
+      ValueNotifier<PeridotAppearanceConfig>(
+        const PeridotAppearanceConfig.defaults(),
+      );
+
+  PeridotScreen _screen = PeridotScreen.home;
+  PeridotScreen _detailBackTarget = PeridotScreen.home;
+  PeridotScreen? _nestedDetailBackTarget;
+  bool _rootSwipeLocked = false;
+  bool _rootNavAnimating = false;
+  PeridotScreen? _rootNavTarget;
+  int _rootNavRevision = 0;
+  int _bypassFocusRevision = 0;
+  late final VoidCallback _interactionRevisionListener;
+  Timer? _nativeBackPoll;
+  late final AnimationController _backSettle;
+
+  File get _appearanceFile {
+    final Directory parent = Directory.systemTemp.parent;
+    return File('${parent.path}/files/peridot-appearance.json');
+  }
+
+  int _rootIndex(PeridotScreen screen) {
+    final int index = _rootOrder.indexOf(screen);
+    return index < 0 ? 0 : index;
+  }
+
+  PeridotScreen _visualRoot() {
+    return _screen.isRoot ? _screen : _detailBackTarget;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _backSettle = AnimationController.unbounded(vsync: this, value: 0)
+      ..addListener(
+        () => PeridotBackMotion.progress.value = _backSettle.value.clamp(0.0, 1.0),
+      );
+
+    _interactionRevisionListener = () {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {});
+    };
+
+    PeridotInteractionSettings.revision.addListener(_interactionRevisionListener);
+
+    PeridotInteractionSettings.load();
+    PeridotBackend.instance.setBackIntercept(false);
+    PeridotBackend.instance.listenBackGesture(_handleBackGesture);
+    _startBackPolling();
+
+    _loadAppearance();
+  }
+
+  void _startBackPolling() {
+    _nativeBackPoll?.cancel();
+    _nativeBackPoll = Timer.periodic(const Duration(milliseconds: 16), (_) {
+      if (!mounted) return;
+      final backend = PeridotBackend.instance;
+      if (backend.consumeBypassSettingsRequest()) {
+        _backSettle.stop();
+        _backSettle.value = 0;
+        _openDetail(PeridotScreen.charging);
+        setState(() => _bypassFocusRevision++);
+        return;
+      }
+      final packet = backend.consumeBackGesture();
+      final requested = backend.consumeBackRequest();
+      if (packet != 0) {
+        _handleBackGesture(packet);
+      } else if (requested && _screen != PeridotScreen.home) {
+        PeridotBackMotion.committedProgress = 0;
+        _back();
+      }
+    });
+  }
+
+  void _handleBackGesture(int packet) {
+    if (!mounted) return;
+    final phase = packet >> 16;
+    if (phase == 1 || phase == 2) {
+      if (phase == 1) PeridotMotionDiagnostics.begin((packet & 32768) != 0);
+      _backSettle.stop();
+      PeridotBackMotion.committedProgress = 0;
+      PeridotBackMotion.nested = PeridotNestedBackController.canPreview;
+      PeridotBackMotion.rightEdge = (packet & 32768) != 0;
+      if (!Navigator.of(context).canPop())
+        _backSettle.value = (packet & 32767) / 10000.0;
+    } else if (phase == 3) {
+      PeridotMotionDiagnostics.end();
+      _backSettle.animateWith(PeridotMotion.cancelBack(_backSettle.value));
+    } else if (phase == 4 && _screen != PeridotScreen.home) {
+      PeridotMotionDiagnostics.end();
+      _backSettle.stop();
+      PeridotBackMotion.rightEdge = (packet & 32768) != 0;
+      PeridotBackMotion.committedProgress = _backSettle.value.clamp(0.0, 1.0);
+      _back();
+      _backSettle.value = 0;
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _startBackPolling();
+    } else {
+      _nativeBackPoll?.cancel();
+      _nativeBackPoll = null;
+      // An interrupted edge gesture must not keep a frozen page on resume.
+      _backSettle.stop();
+      _backSettle.value = 0;
+      PeridotBackMotion.committedProgress = 0;
+    }
+  }
+
+  Future<void> _loadAppearance() async {
+    try {
+      final File file = _appearanceFile;
+      if (!await file.exists()) {
+        return;
+      }
+
+      final String raw = await file.readAsString();
+      final Object? decoded = jsonDecode(raw);
+      final PeridotAppearanceConfig config = PeridotAppearanceConfig.fromJson(
+        decoded,
+      );
+
+      if (!mounted) {
+        return;
+      }
+
+      _appearance.value = config;
+      PeridotThemeController.setPreference(config.themePreference);
+    } catch (_) {
+      // Appearance must never block app boot.
+    }
+  }
+
+  Future<void> _persistAppearance() async {
+    try {
+      final File file = _appearanceFile;
+      await file.parent.create(recursive: true);
+      await file.writeAsString(
+        jsonEncode(_appearance.value.toJson()),
+        flush: false,
+      );
+    } catch (_) {
+      // Appearance persistence is non-critical.
+    }
+  }
+
+  void _setThemePreference(PeridotThemePreference preference) {
+    PeridotThemeController.setPreference(preference);
+
+    _appearance.value = _appearance.value.copyWith(themePreference: preference);
+
+    _persistAppearance();
+  }
+
+  void _setAccentIndex(int index) {
+    _appearance.value = _appearance.value.copyWith(accentIndex: index);
+    _persistAppearance();
+  }
+
+  void _setCardRadius(double radius) {
+    _appearance.value = _appearance.value.copyWith(cardRadius: radius);
+    _persistAppearance();
+  }
+
+  void _setCardStyle(int style) {
+    _appearance.value = _appearance.value.copyWith(cardStyle: style);
+    _persistAppearance();
+  }
+
+  void _setHeroGlow(bool glow) {
+    _appearance.value = _appearance.value.copyWith(heroGlow: glow);
+    _persistAppearance();
+  }
+
+  void _setCoreVisualizerStyle(int style) {
+    _appearance.value = _appearance.value.copyWith(coreVisualizerStyle: style);
+    _persistAppearance();
+  }
+
+  void _setCustomBackgroundPath(String path) {
+    _appearance.value = _appearance.value.copyWith(
+      backgroundStyle: PeridotBackgroundStyle.custom,
+      customPath: path,
+    );
+
+    _persistAppearance();
+  }
+
+  void _setBackgroundStyle(PeridotBackgroundStyle style) {
+    _appearance.value = _appearance.value.copyWith(backgroundStyle: style);
+    _persistAppearance();
+  }
+
+  void _setBackgroundBlur(double value) {
+    _appearance.value = _appearance.value.copyWith(
+      backgroundBlur: value.clamp(0.0, 28.0).toDouble(),
+    );
+  }
+
+  void _commitBackgroundBlur(double value) {
+    _setBackgroundBlur(value);
+    _persistAppearance();
+  }
+
+  void _resetAppearance() {
+    const PeridotAppearanceConfig defaults = PeridotAppearanceConfig.defaults();
+
+    PeridotThemeController.setPreference(defaults.themePreference);
+
+    _appearance.value = defaults;
+    _persistAppearance();
+  }
+
+  void _setRootSwipeLocked(bool locked) {
+    if (_rootSwipeLocked == locked) {
+      return;
+    }
+    setState(() => _rootSwipeLocked = locked);
+  }
+
+  void _syncNativeBackInterception() {
+    PeridotBackend.instance.setBackIntercept(_screen != PeridotScreen.home);
+  }
+
+  void _selectRoot(PeridotScreen screen) {
+    if (!screen.isRoot) {
+      return;
+    }
+
+    final int target = _rootIndex(screen);
+    final revision = ++_rootNavRevision;
+    _rootPagerKey.currentState?.prepareJump(target);
+    PeridotMotionDiagnostics.begin(false, label: 'tab-${screen.name}');
+    PeridotMotionDiagnostics.end();
+
+    setState(() {
+      _screen = screen;
+      _detailBackTarget = screen;
+      _nestedDetailBackTarget = null;
+      _rootNavAnimating = _rootController.hasClients;
+      _rootNavTarget = screen;
+    });
+
+    if (_rootController.hasClients && MediaQuery.disableAnimationsOf(context)) {
+      _rootController.jumpToPage(target);
+      _rootPagerKey.currentState?.finishJump();
+      _rootNavAnimating = false;
+      _rootNavTarget = null;
+    } else if (_rootController.hasClients) {
+      unawaited(
+        _rootController
+            .animateToPage(
+              target,
+              duration: PeridotInteractionSettings.motionDuration(260),
+              curve: Curves.easeOutCubic,
+            )
+            .whenComplete(() {
+              if (!mounted || _rootNavRevision != revision) return;
+              _rootPagerKey.currentState?.finishJump();
+              setState(() {
+                _screen = screen;
+                _rootNavAnimating = false;
+                _rootNavTarget = null;
+              });
+            }),
+      );
+    } else {
+      _rootNavAnimating = false;
+      _rootNavTarget = null;
+    }
+
+    _syncNativeBackInterception();
+  }
+
+  void _interruptRootTap() {
+    // Dock/page dragging takes ownership; a completed old A→B→A future must
+    // never clear a newer transition merely because its target matches again.
+    ++_rootNavRevision;
+    if (!_rootNavAnimating) return;
+    final visible =
+        _rootPagerKey.currentState?.visibleIndex ??
+        _rootController.page?.round() ??
+        _rootIndex(_visualRoot());
+    _rootNavAnimating = false;
+    _rootNavTarget = null;
+    _rootPagerKey.currentState?.finishJump();
+    _rootController.jumpToPage(visible);
+    setState(() {
+      if (_screen.isRoot) {
+        _screen = _rootOrder[visible];
+        _detailBackTarget = _screen;
+      }
+    });
+    _syncNativeBackInterception();
+  }
+
+  void _onRootPageChanged(int index) {
+    if (index < 0 || index >= _rootOrder.length) {
+      return;
+    }
+
+    final PeridotScreen next = _rootOrder[index];
+
+    if (_rootNavAnimating && _rootNavTarget != null && next != _rootNavTarget) {
+      return;
+    }
+
+    if (_screen == next) {
+      return;
+    }
+
+    setState(() {
+      _screen = next;
+      _detailBackTarget = next;
+      _nestedDetailBackTarget = null;
+    });
+
+    _syncNativeBackInterception();
+  }
+
+  void _openDetail(PeridotScreen screen) {
+    if (screen.isRoot) {
+      _selectRoot(screen);
+      return;
+    }
+
+    PeridotBackMotion.committedProgress = 0;
+    PeridotMotionDiagnostics.begin(false, label: 'open-${screen.name}');
+    PeridotMotionDiagnostics.end();
+
+    setState(() {
+      if (_screen.isRoot) {
+        _detailBackTarget = _screen;
+      }
+      _nestedDetailBackTarget = null;
+      _screen = screen;
+    });
+
+    _syncNativeBackInterception();
+  }
+
+  // ignore: unused_element
+  void _openNestedDetail(PeridotScreen screen) {
+    if (screen.isRoot || _screen.isRoot) {
+      _openDetail(screen);
+      return;
+    }
+
+    final PeridotScreen parent = _screen;
+
+    setState(() {
+      _nestedDetailBackTarget = parent;
+      _screen = screen;
+    });
+
+    _syncNativeBackInterception();
+  }
+
+  void _back() {
+    // A confirmation/sheet owns Back before a nested hardware page does.
+    final NavigatorState navigator = Navigator.of(context);
+    if (navigator.canPop()) {
+      navigator.pop();
+      return;
+    }
+    if (PeridotNestedBackController.handleBack()) {
+      return;
+    }
+
+    final PeridotScreen? nestedTarget = _nestedDetailBackTarget;
+
+    if (nestedTarget != null && !_screen.isRoot) {
+      setState(() {
+        _screen = nestedTarget;
+        _nestedDetailBackTarget = null;
+      });
+
+      _syncNativeBackInterception();
+      return;
+    }
+
+    if (_screen.isRoot) {
+      if (_screen != PeridotScreen.home) {
+        _selectRoot(PeridotScreen.home);
+      }
+      return;
+    }
+
+    final PeridotScreen target = _detailBackTarget;
+
+    if (_rootController.hasClients) {
+      _rootController.jumpToPage(_rootIndex(target));
+    }
+
+    setState(() {
+      _screen = target;
+      _nestedDetailBackTarget = null;
+    });
+
+    _syncNativeBackInterception();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    PeridotBackend.instance.setBackIntercept(false);
+    PeridotBackend.instance.stopBackGesture();
+    _nativeBackPoll?.cancel();
+    _nativeBackPoll = null;
+    _backSettle.dispose();
+    PeridotBackMotion.progress.value = 0;
+    _rootController.dispose();
+    _appearance.dispose();
+    PeridotInteractionSettings.revision.removeListener(
+      _interactionRevisionListener,
+    );
+
+    super.dispose();
+  }
+
+  Widget _rootPage(PeridotScreen screen) {
+    switch (screen) {
+      case PeridotScreen.home:
+        return HomeScreen(
+          onOpen: _openDetail,
+          onHubs: () => _selectRoot(PeridotScreen.hubs),
+          onSupport: () => _selectRoot(PeridotScreen.support),
+        );
+      case PeridotScreen.hubs:
+        return HubsScreen(onOpen: _openDetail);
+      case PeridotScreen.support:
+        return const SupportScreen();
+      case PeridotScreen.settings:
+        return ValueListenableBuilder<PeridotAppearanceConfig>(
+          valueListenable: _appearance,
+          builder:
+              (
+                BuildContext context,
+                PeridotAppearanceConfig config,
+                Widget? child,
+              ) {
+                return SettingsScreen(
+                  config: config,
+                  onThemePreferenceChanged: _setThemePreference,
+                  onBackgroundStyleChanged: _setBackgroundStyle,
+                  onCustomBackgroundSelected: _setCustomBackgroundPath,
+                  onBlurChanged: _setBackgroundBlur,
+                  onBlurChangeEnd: _commitBackgroundBlur,
+                  onHorizontalControlActive: _setRootSwipeLocked,
+                  onResetAppearance: _resetAppearance,
+                  onAccentChanged: _setAccentIndex,
+                  onCardRadiusChanged: _setCardRadius,
+                  onCardStyleChanged: _setCardStyle,
+                  onHeroGlowChanged: _setHeroGlow,
+                  onCoreVisualizerStyleChanged: _setCoreVisualizerStyle,
+                );
+              },
+        );
+      default:
+        return const SizedBox.shrink();
+    }
+  }
+
+  // Keep destination widgets stable while detail pages enter and leave.
+  // Appearance/telemetry still update through their inherited scopes/streams.
+  late final List<Widget> _rootPages = _rootOrder
+      .map(
+        (PeridotScreen screen) => RepaintBoundary(
+          child: Stack(
+            fit: StackFit.expand,
+            children: <Widget>[
+              ValueListenableBuilder<PeridotAppearanceConfig>(
+                valueListenable: _appearance,
+                builder: (_, config, _) => _PeridotBackgroundLayer(config: config),
+              ),
+              _rootPage(screen),
+            ],
+          ),
+        ),
+      )
+      .toList(growable: false);
+
+  Widget _rootPager() {
+    return PeridotRootPager(
+      key: _rootPagerKey,
+      controller: _rootController,
+      physics: const PageScrollPhysics(parent: PeridotScrollPhysics()),
+      swipeEnabled: !_rootSwipeLocked,
+      onDragStart: _interruptRootTap,
+      onPageChanged: _onRootPageChanged,
+      children: _rootPages,
+    );
+  }
+
+  Widget _detailBody(PeridotScreen screen) {
+    switch (screen) {
+      case PeridotScreen.charging:
+        return ChargingScreen(
+          onBack: _back,
+          focusRequest: _bypassFocusRevision,
+        );
+      case PeridotScreen.touchBoost:
+        return TouchBoostScreen(onBack: _back);
+      case PeridotScreen.displayStudio:
+        return DisplayStudioScreen(onBack: _back);
+      case PeridotScreen.cpuControl:
+        return CpuControlScreen(onBack: _back);
+      case PeridotScreen.advancedConfiguration:
+        return AdvancedConfigurationScreen(onBack: _back);
+      case PeridotScreen.resolution:
+        return ResolutionScreen(onBack: _back);
+      case PeridotScreen.diagnostics:
+        return DiagnosticsScreen(onBack: _back);
+      case PeridotScreen.zramSwap:
+        return ZramSwapScreen(onBack: _back);
+      case PeridotScreen.maliGpu:
+        return MaliGpuScreen(onBack: _back);
+      case PeridotScreen.systemColors:
+        return SystemColorsScreen(onBack: _back);
+      case PeridotScreen.perAppControls:
+        return PerAppControlsScreen(onBack: _back);
+      case PeridotScreen.subsystemClocks:
+        return SubsystemClocksScreen(onBack: _back);
+      default:
+        return _rootPager();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final PeridotScreen current = _screen;
+    final PeridotScreen navRoot = _visualRoot();
+    final bool isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return ValueListenableBuilder<PeridotAppearanceConfig>(
+      valueListenable: _appearance,
+      builder:
+          (BuildContext context, PeridotAppearanceConfig config, Widget? child) {
+            return PeridotAppearanceScope(
+              config: config,
+              child: PopScope(
+                canPop: current == PeridotScreen.home,
+                onPopInvokedWithResult: (bool didPop, Object? result) {
+                  if (!didPop && current != PeridotScreen.home) {
+                    _back();
+                  }
+                },
+                child: Scaffold(
+                  backgroundColor: Colors.transparent,
+                  extendBody: true,
+                  body: Stack(
+                    fit: StackFit.expand,
+                    children: <Widget>[
+                      _PeridotBackgroundLayer(config: config),
+                      SafeArea(
+                        bottom: false,
+                        child: Stack(
+                          fit: StackFit.expand,
+                          children: <Widget>[
+                            TickerMode(
+                              enabled: current.isRoot,
+                              child: IgnorePointer(
+                                ignoring: !current.isRoot,
+                                child: _rootPager(),
+                              ),
+                            ),
+                            AnimatedSwitcher(
+                              duration: MediaQuery.disableAnimationsOf(context)
+                                  ? Duration.zero
+                                  : PeridotInteractionSettings.motionDuration(320),
+                              reverseDuration:
+                                  MediaQuery.disableAnimationsOf(context)
+                                  ? Duration.zero
+                                  : PeridotInteractionSettings.motionDuration(220),
+                              switchInCurve: Curves.linear,
+                              switchOutCurve: Curves.linear,
+                              transitionBuilder:
+                                  (Widget child, Animation<double> animation) {
+                                    if (child.key ==
+                                        const ValueKey<String>(
+                                          'no-detail-overlay',
+                                        )) {
+                                      return child;
+                                    }
+                                    return PeridotDetailTransition(
+                                      animation: animation,
+                                      previewThrough: true,
+                                      forward: !current.isRoot,
+                                      active:
+                                          child.key ==
+                                          ValueKey<PeridotScreen>(current),
+                                      child: PeridotPredictivePlane(child: child),
+                                    );
+                                  },
+                              child: current.isRoot
+                                  ? const SizedBox.shrink(
+                                      key: ValueKey<String>(
+                                        'no-detail-overlay',
+                                      ),
+                                    )
+                                  : Container(
+                                      key: ValueKey<PeridotScreen>(current),
+                                      decoration: BoxDecoration(
+                                        color: isDark
+                                            ? const Color(0xFF090C11)
+                                            : const Color(0xFFF3F6FA),
+                                        boxShadow: <BoxShadow>[
+                                          BoxShadow(
+                                            color: Colors.black.withValues(
+                                              alpha: isDark ? 0.50 : 0.12,
+                                            ),
+                                            blurRadius: 18,
+                                            offset: const Offset(-4, 0),
+                                          ),
+                                        ],
+                                      ),
+                                      child: Stack(
+                                        fit: StackFit.expand,
+                                        children: <Widget>[
+                                          _PeridotBackgroundLayer(config: config),
+                                          _detailBody(current),
+                                        ],
+                                      ),
+                                    ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  bottomNavigationBar: Stack(
+                    children: <Widget>[
+                      Positioned.fill(
+                        child: IgnorePointer(
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                                colors: <Color>[
+                                  Theme.of(context).colorScheme.surface
+                                      .withValues(alpha: 0),
+                                  Theme.of(context).colorScheme.surface
+                                      .withValues(alpha: isDark ? 0.74 : 0.86),
+                                  Theme.of(context).colorScheme.surface,
+                                ],
+                                stops: const <double>[0, 0.55, 1],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.only(
+                          top: PeridotBottomLayout.dockFade,
+                        ),
+                        child: PeridotBottomBar(
+                          controller: _rootController,
+                          currentRoot: navRoot,
+                          onSelect: _selectRoot,
+                          onDragStart: _interruptRootTap,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+    );
+  }
+}
+
+enum PeridotBackgroundStyle { system, midnight, aurora, custom }
+
+class PeridotAppearanceConfig {
+  const PeridotAppearanceConfig({
+    required this.themePreference,
+    required this.backgroundStyle,
+    required this.backgroundBlur,
+    required this.customPath,
+    this.accentIndex = 0,
+    this.cardRadius = 22.0,
+    this.cardStyle = 0,
+    this.heroGlow = true,
+    this.coreVisualizerStyle = 0,
+  });
+
+  const PeridotAppearanceConfig.defaults()
+    : themePreference = PeridotThemePreference.system,
+      backgroundStyle = PeridotBackgroundStyle.system,
+      backgroundBlur = 0,
+      customPath = '',
+      accentIndex = 0,
+      cardRadius = 22.0,
+      cardStyle = 0,
+      heroGlow = true,
+      coreVisualizerStyle = 0;
+
+  final PeridotThemePreference themePreference;
+  final PeridotBackgroundStyle backgroundStyle;
+  final double backgroundBlur;
+  final String customPath;
+  final int accentIndex;
+  final double cardRadius;
+  final int cardStyle;
+  final bool heroGlow;
+  final int coreVisualizerStyle;
+
+  static const List<Color> accents = <Color>[
+    Color(0xFF59BCFF), // Electric Azure (Default)
+    Color(0xFF00E5FF), // Neon Cyan
+    Color(0xFF38E598), // Emerald Mint
+    Color(0xFFB087FF), // Cyber Violet
+    Color(0xFFFFA048), // Hyper Amber
+    Color(0xFFFF5376), // Crimson Rose
+    Color(0xFFD0D7DE), // Titanium Slate
+  ];
+
+  static const List<String> accentNames = <String>[
+    'Azure',
+    'Cyan',
+    'Mint',
+    'Violet',
+    'Amber',
+    'Rose',
+    'Titanium',
+  ];
+
+  Color get activeAccent => accents[accentIndex.clamp(0, accents.length - 1)];
+
+  PeridotAppearanceConfig copyWith({
+    PeridotThemePreference? themePreference,
+    PeridotBackgroundStyle? backgroundStyle,
+    double? backgroundBlur,
+    String? customPath,
+    int? accentIndex,
+    double? cardRadius,
+    int? cardStyle,
+    bool? heroGlow,
+    int? coreVisualizerStyle,
+  }) {
+    return PeridotAppearanceConfig(
+      themePreference: themePreference ?? this.themePreference,
+      backgroundStyle: backgroundStyle ?? this.backgroundStyle,
+      backgroundBlur: backgroundBlur ?? this.backgroundBlur,
+      customPath: customPath ?? this.customPath,
+      accentIndex: accentIndex ?? this.accentIndex,
+      cardRadius: cardRadius ?? this.cardRadius,
+      cardStyle: cardStyle ?? this.cardStyle,
+      heroGlow: heroGlow ?? this.heroGlow,
+      coreVisualizerStyle: coreVisualizerStyle ?? this.coreVisualizerStyle,
+    );
+  }
+
+  Map<String, Object> toJson() {
+    return <String, Object>{
+      'themeMode': themePreference.name,
+      'backgroundStyle': backgroundStyle.name,
+      'backgroundBlur': backgroundBlur,
+      'customPath': customPath,
+      'accentIndex': accentIndex,
+      'cardRadius': cardRadius,
+      'cardStyle': cardStyle,
+      'heroGlow': heroGlow,
+      'coreVisualizerStyle': coreVisualizerStyle,
+    };
+  }
+
+  static PeridotAppearanceConfig fromJson(Object? raw) {
+    if (raw is! Map<String, dynamic>) {
+      return const PeridotAppearanceConfig.defaults();
+    }
+
+    final PeridotThemePreference themePreference =
+        PeridotThemeController.preferenceFromName(raw['themeMode']?.toString());
+
+    final String styleName = raw['backgroundStyle']?.toString() ?? 'system';
+
+    final PeridotBackgroundStyle style = PeridotBackgroundStyle.values.firstWhere(
+      (PeridotBackgroundStyle value) => value.name == styleName,
+      orElse: () => PeridotBackgroundStyle.system,
+    );
+
+    final num? blurRaw = raw['backgroundBlur'] as num?;
+    final double blur = (blurRaw?.toDouble() ?? 0).clamp(0.0, 28.0).toDouble();
+
+    final int accentIndex = (raw['accentIndex'] as num?)?.toInt() ?? 0;
+    final double cardRadius = (raw['cardRadius'] as num?)?.toDouble() ?? 22.0;
+    final int cardStyle = (raw['cardStyle'] as num?)?.toInt() ?? 0;
+    final bool heroGlow = raw['heroGlow'] as bool? ?? true;
+    final int coreVisualizerStyle =
+        (raw['coreVisualizerStyle'] as num?)?.toInt() ?? 0;
+
+    return PeridotAppearanceConfig(
+      themePreference: themePreference,
+      backgroundStyle: style,
+      backgroundBlur: blur,
+      customPath: raw['customPath']?.toString() ?? '',
+      accentIndex: accentIndex,
+      cardRadius: cardRadius,
+      cardStyle: cardStyle,
+      heroGlow: heroGlow,
+      coreVisualizerStyle: coreVisualizerStyle,
+    );
+  }
+}
+
+class PeridotAppearanceScope extends InheritedWidget {
+  const PeridotAppearanceScope({
+    required this.config,
+    required super.child,
+    super.key,
+  });
+
+  final PeridotAppearanceConfig config;
+
+  static PeridotAppearanceConfig of(BuildContext context) {
+    final PeridotAppearanceScope? scope = context
+        .dependOnInheritedWidgetOfExactType<PeridotAppearanceScope>();
+    return scope?.config ?? const PeridotAppearanceConfig.defaults();
+  }
+
+  @override
+  bool updateShouldNotify(PeridotAppearanceScope oldWidget) {
+    return config != oldWidget.config;
+  }
+}
+
+class _PeridotBackgroundLayer extends StatelessWidget {
+  const _PeridotBackgroundLayer({required this.config});
+
+  final PeridotAppearanceConfig config;
+
+  Widget _midnight(BuildContext context) {
+    final bool dark = Theme.of(context).brightness == Brightness.dark;
+
+    if (dark) {
+      return const Stack(
+        fit: StackFit.expand,
+        children: <Widget>[
+          ColoredBox(color: Color(0xFF05080D)),
+          DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: RadialGradient(
+                center: Alignment(-0.82, -0.88),
+                radius: 1.08,
+                colors: <Color>[
+                  Color(0x2E3B82C6),
+                  Color(0x141B416A),
+                  Color(0x0005080D),
+                ],
+                stops: <double>[0, 0.47, 1],
+              ),
+            ),
+          ),
+          DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: <Color>[
+                  Color(0x00000000),
+                  Color(0x08000000),
+                  Color(0x26000000),
+                ],
+                stops: <double>[0, 0.58, 1],
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+
+    return const Stack(
+      fit: StackFit.expand,
+      children: <Widget>[
+        ColoredBox(color: Color(0xFFF3F6FA)),
+        DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: RadialGradient(
+              center: Alignment(-0.78, -0.90),
+              radius: 1.14,
+              colors: <Color>[
+                Color(0x244F8FC7),
+                Color(0x10346D9F),
+                Color(0x00F3F6FA),
+              ],
+              stops: <double>[0, 0.48, 1],
+            ),
+          ),
+        ),
+        DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: <Color>[
+                Color(0x00FFFFFF),
+                Color(0x10FFFFFF),
+                Color(0x2AEEF3F8),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _aurora(BuildContext context) {
+    final bool dark = Theme.of(context).brightness == Brightness.dark;
+
+    if (dark) {
+      return const Stack(
+        fit: StackFit.expand,
+        children: <Widget>[
+          ColoredBox(color: Color(0xFF060910)),
+          DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: RadialGradient(
+                center: Alignment(-0.92, -0.82),
+                radius: 1.20,
+                colors: <Color>[
+                  Color(0x383E87F5),
+                  Color(0x162D5DA7),
+                  Color(0x00060910),
+                ],
+                stops: <double>[0, 0.44, 1],
+              ),
+            ),
+          ),
+          DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: RadialGradient(
+                center: Alignment(1.02, 0.72),
+                radius: 1.12,
+                colors: <Color>[
+                  Color(0x2A35BE9F),
+                  Color(0x12368783),
+                  Color(0x00060910),
+                ],
+                stops: <double>[0, 0.43, 1],
+              ),
+            ),
+          ),
+          DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: RadialGradient(
+                center: Alignment(0.68, -0.70),
+                radius: 0.92,
+                colors: <Color>[Color(0x1E8D65D8), Color(0x00060910)],
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+
+    return const Stack(
+      fit: StackFit.expand,
+      children: <Widget>[
+        ColoredBox(color: Color(0xFFF7F9FC)),
+        DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: RadialGradient(
+              center: Alignment(-0.92, -0.82),
+              radius: 1.18,
+              colors: <Color>[
+                Color(0x2A579CF0),
+                Color(0x105F8EC4),
+                Color(0x00F7F9FC),
+              ],
+              stops: <double>[0, 0.46, 1],
+            ),
+          ),
+        ),
+        DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: RadialGradient(
+              center: Alignment(1.0, 0.72),
+              radius: 1.08,
+              colors: <Color>[
+                Color(0x2439BDA2),
+                Color(0x0D65A995),
+                Color(0x00F7F9FC),
+              ],
+              stops: <double>[0, 0.44, 1],
+            ),
+          ),
+        ),
+        DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: RadialGradient(
+              center: Alignment(0.65, -0.72),
+              radius: 0.88,
+              colors: <Color>[Color(0x188B67D3), Color(0x00F7F9FC)],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _custom(BuildContext context) {
+    if (config.customPath.isEmpty) {
+      return _aurora(context);
+    }
+
+    return Image.file(
+      key: ValueKey<String>('peridot-custom-${config.customPath}'),
+      File(config.customPath),
+      fit: BoxFit.cover,
+      filterQuality: FilterQuality.medium,
+      gaplessPlayback: true,
+      errorBuilder:
+          (BuildContext context, Object error, StackTrace? stackTrace) {
+            return _aurora(context);
+          },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme colors = theme.colorScheme;
+    final bool dark = theme.brightness == Brightness.dark;
+
+    Widget visual = dark
+        ? const ColoredBox(color: Color(0xFF000000))
+        : switch (config.backgroundStyle) {
+            PeridotBackgroundStyle.system => ColoredBox(
+              color: theme.scaffoldBackgroundColor,
+            ),
+            PeridotBackgroundStyle.midnight => _midnight(context),
+            PeridotBackgroundStyle.aurora => _aurora(context),
+            PeridotBackgroundStyle.custom => _custom(context),
+          };
+
+    if (!dark && config.backgroundBlur > 0.05) {
+      visual = ClipRect(
+        child: ImageFiltered(
+          imageFilter: ui.ImageFilter.blur(
+            sigmaX: config.backgroundBlur,
+            sigmaY: config.backgroundBlur,
+            tileMode: TileMode.clamp,
+          ),
+          child: Transform.scale(scale: 1.06, child: visual),
+        ),
+      );
+    }
+
+    final bool decorated =
+        !dark && config.backgroundStyle != PeridotBackgroundStyle.system;
+
+    return Stack(
+      fit: StackFit.expand,
+      children: <Widget>[
+        visual,
+        if (decorated)
+          IgnorePointer(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: dark
+                      ? <Color>[
+                          colors.surface.withValues(alpha: 0.09),
+                          Colors.transparent,
+                          colors.surface.withValues(alpha: 0.16),
+                        ]
+                      : <Color>[
+                          colors.surface.withValues(alpha: 0.20),
+                          Colors.white.withValues(alpha: 0.035),
+                          colors.surface.withValues(alpha: 0.24),
+                        ],
+                  stops: const <double>[0, 0.52, 1],
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _ServiceSettingsCard extends StatefulWidget {
+  const _ServiceSettingsCard({required this.onResetAppearance});
+  final VoidCallback onResetAppearance;
+
+  @override
+  State<_ServiceSettingsCard> createState() => _ServiceSettingsCardState();
+}
+
+class _ServiceSettingsCardState extends State<_ServiceSettingsCard> {
+  bool _pending = false;
+  bool _reset = false;
+  String? _message;
+  StreamSubscription<PeridotBackendSnapshot>? _subscription;
+
+  @override
+  void initState() {
+    super.initState();
+    _subscription = PeridotBackend.instance.snapshots.listen((_) {
+      if (!mounted) return;
+      final int state = PeridotBackend.instance.serviceActionState;
+      if (_pending && state != 1 && state != 0) {
+        if (state == 2 && _reset) {
+          widget.onResetAppearance();
+          PeridotInteractionSettings.resetMotion();
+          PeridotInteractionSettings.setHaptics(true);
+        }
+        setState(() {
+          _pending = false;
+          _message = state == 2
+              ? (_reset
+                    ? 'All device controls reset.'
+                    : PeridotBackend.instance.serviceEnabled
+                    ? 'Peridot Essential enabled.'
+                    : 'Peridot Essential disabled. Your preferences are saved.')
+              : 'Some settings could not be restored. Peridot Essential control remains paused. Retry or check backend diagnostics.';
+        });
+      }
+    });
+  }
+
+  Future<void> _change({required bool reset, bool enable = false}) async {
+    if (_pending) return;
+    PeridotHaptics.tap();
+    if (reset || !enable) {
+      final PeridotAppearanceConfig appearance = PeridotAppearanceScope.of(context);
+      final bool confirmed =
+          await showPeridotDialog<bool>(
+            context: context,
+            builder: (BuildContext context) => PeridotAppearanceScope(
+              config: appearance,
+              child: PeridotServiceConfirmation(
+                reset: reset,
+                cornerRadius: appearance.cardRadius,
+                accent: appearance.activeAccent,
+                onConfirmHaptic: PeridotHaptics.confirm,
+                onCancelHaptic: PeridotHaptics.back,
+                surfaceBuilder: (Widget child) => SurfaceCard(
+                  padding: const EdgeInsets.all(22),
+                  accent: appearance.activeAccent,
+                  child: child,
+                ),
+              ),
+            ),
+          ) ??
+          false;
+      if (!confirmed || !mounted) return;
+    }
+    final PeridotBackend backend = PeridotBackend.instance;
+    final bool accepted = reset
+        ? backend.resetAllSettings()
+        : backend.setServiceEnabled(enable);
+    setState(() {
+      _reset = reset;
+      _pending = accepted;
+      _message = accepted
+          ? null
+          : 'Backend unavailable or another operation is in progress.';
+    });
+  }
+
+  @override
+  void dispose() {
+    _subscription?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme colors = Theme.of(context).colorScheme;
+    final PeridotBackend backend = PeridotBackend.instance;
+    return StreamBuilder<PeridotBackendSnapshot>(
+      stream: backend.snapshots,
+      initialData: backend.latest,
+      builder:
+          (BuildContext context, AsyncSnapshot<PeridotBackendSnapshot> snapshot) {
+            final Color accent = PeridotAppearanceScope.of(context).activeAccent;
+            final bool connected = snapshot.data?.ready ?? false;
+            final bool known = backend.extendedValue(116) >= 0;
+            final bool enabled = backend.serviceEnabled;
+            final bool busy = _pending || backend.serviceActionState == 1;
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                const SectionLabel('Service & reset'),
+                const SizedBox(height: 9),
+                SurfaceCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Row(
+                        children: <Widget>[
+                          Icon(
+                            Icons.power_settings_new_rounded,
+                            color: accent,
+                            size: 25,
+                          ),
+                          const SizedBox(width: 12),
+                          const Expanded(
+                            child: Text(
+                              'Enable Peridot Essential',
+                              style: TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                          Switch.adaptive(
+                            value: enabled,
+                            activeTrackColor: accent,
+                            onChanged: connected && known && !busy
+                                ? (bool value) =>
+                                      _change(reset: false, enable: value)
+                                : null,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 5),
+                      Text(
+                        !connected
+                            ? 'Connect to the backend to manage device controls.'
+                            : !known
+                            ? 'Update the backend to use service controls.'
+                            : enabled
+                            ? 'Device controls are available. Your saved selections are restored after reboot.'
+                            : 'Background device control is paused. Open this page to enable it again.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          height: 1.45,
+                          color: colors.onSurfaceVariant,
+                        ),
+                      ),
+                      const SizedBox(height: 15),
+                      const Divider(height: 1),
+                      const SizedBox(height: 13),
+                      Row(
+                        children: <Widget>[
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: <Widget>[
+                                const Text(
+                                  'Reset all device settings',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Restore captured originals and vendor defaults. Clear all saved device overrides.',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    height: 1.45,
+                                    color: colors.onSurfaceVariant,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          IconButton.filledTonal(
+                            style: IconButton.styleFrom(
+                              foregroundColor: accent,
+                              backgroundColor: accent.withValues(alpha: 0.12),
+                            ),
+                            tooltip: 'Reset all device settings',
+                            onPressed: connected && known && !busy
+                                ? () => _change(reset: true)
+                                : null,
+                            icon: const Icon(Icons.restart_alt_rounded),
+                          ),
+                        ],
+                      ),
+                      if (busy) ...<Widget>[
+                        const SizedBox(height: 14),
+                        LinearProgressIndicator(color: accent),
+                        const SizedBox(height: 7),
+                        Text(
+                          'Applying service change…',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: colors.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                      if (_message != null) ...<Widget>[
+                        const SizedBox(height: 12),
+                        Text(
+                          _message!,
+                          style: TextStyle(
+                            fontSize: 12,
+                            height: 1.45,
+                            color: colors.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            );
+          },
+    );
+  }
+}
+
+class SettingsScreen extends StatefulWidget {
+  const SettingsScreen({
+    required this.config,
+    required this.onThemePreferenceChanged,
+    required this.onBackgroundStyleChanged,
+    required this.onCustomBackgroundSelected,
+    required this.onBlurChanged,
+    required this.onBlurChangeEnd,
+    required this.onHorizontalControlActive,
+    required this.onResetAppearance,
+    required this.onAccentChanged,
+    required this.onCardRadiusChanged,
+    required this.onCardStyleChanged,
+    required this.onHeroGlowChanged,
+    required this.onCoreVisualizerStyleChanged,
+    super.key,
+  });
+
+  final PeridotAppearanceConfig config;
+  final ValueChanged<PeridotThemePreference> onThemePreferenceChanged;
+  final ValueChanged<PeridotBackgroundStyle> onBackgroundStyleChanged;
+  final ValueChanged<String> onCustomBackgroundSelected;
+  final ValueChanged<double> onBlurChanged;
+  final ValueChanged<double> onBlurChangeEnd;
+  final ValueChanged<bool> onHorizontalControlActive;
+  final VoidCallback onResetAppearance;
+  final ValueChanged<int> onAccentChanged;
+  final ValueChanged<double> onCardRadiusChanged;
+  final ValueChanged<int> onCardStyleChanged;
+  final ValueChanged<bool> onHeroGlowChanged;
+  final ValueChanged<int> onCoreVisualizerStyleChanged;
+
+  @override
+  State<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends State<SettingsScreen> {
+  bool _choosingPhoto = false;
+  String? _photoMessage;
+
+  Future<int> _ensurePhotoPermission() async {
+    final PeridotBackend backend = PeridotBackend.instance;
+
+    int state = backend.photoPermissionState();
+
+    if (state > 0) {
+      return state;
+    }
+
+    if (!backend.requestPhotoPermission()) {
+      return 0;
+    }
+
+    for (int i = 0; i < 100; i += 1) {
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+
+      if (!mounted) {
+        return 0;
+      }
+
+      state = backend.photoPermissionState();
+
+      if (state > 0) {
+        return state;
+      }
+    }
+
+    return 0;
+  }
+
+  String _privateBackgroundPath(String selected) {
+    final String lower = selected.toLowerCase();
+
+    String extension = '.jpg';
+
+    if (lower.endsWith('.png')) {
+      extension = '.png';
+    } else if (lower.endsWith('.webp')) {
+      extension = '.webp';
+    }
+
+    final int nonce = DateTime.now().microsecondsSinceEpoch;
+
+    return '${Directory.systemTemp.parent.path}'
+        '/files/peridot-custom-background-'
+        '$nonce$extension';
+  }
+
+  Future<void> _choosePhoto() async {
+    if (_choosingPhoto) {
+      return;
+    }
+
+    setState(() {
+      _choosingPhoto = true;
+      _photoMessage = null;
+    });
+
+    final int permissionState = await _ensurePhotoPermission();
+
+    if (!mounted) {
+      return;
+    }
+
+    if (permissionState <= 0) {
+      setState(() {
+        _choosingPhoto = false;
+        _photoMessage =
+            'Photo access was not granted. '
+            'Peridot Essential keeps working '
+            'normally without it.';
+      });
+
+      return;
+    }
+
+    final String? selected = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: false,
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black.withValues(alpha: 0.38),
+      builder: (BuildContext context) {
+        return FractionallySizedBox(
+          heightFactor: 0.91,
+          child: _PeridotGalleryBrowser(permissionState: permissionState),
+        );
+      },
+    );
+
+    if (!mounted) {
+      return;
+    }
+
+    if (selected == null) {
+      setState(() {
+        _choosingPhoto = false;
+      });
+
+      return;
+    }
+
+    try {
+      final String destination = _privateBackgroundPath(selected);
+
+      final File target = File(destination);
+
+      await target.parent.create(recursive: true);
+
+      await File(selected).copy(target.path);
+
+      // Decode the new unique FileImage first so the shell swaps to an
+      // already-ready provider. No restart and no stale same-path cache.
+      await precacheImage(FileImage(target), context);
+
+      if (!mounted) {
+        return;
+      }
+
+      widget.onCustomBackgroundSelected(target.path);
+
+      setState(() {
+        _choosingPhoto = false;
+        _photoMessage = 'Custom background applied';
+      });
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _choosingPhoto = false;
+        _photoMessage =
+            'That image could not be '
+            'applied.';
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme colors = Theme.of(context).colorScheme;
+    final PeridotAppearanceConfig config = widget.config;
+
+    return PeridotScrollPage(
+      children: <Widget>[
+        const PeridotHeader(
+          title: 'Settings',
+          subtitle: 'Service controls, theme, and customization',
+          large: false,
+        ),
+        const SizedBox(height: 10),
+
+        // 1. LIVE PREVIEW CARD
+        _ServiceSettingsCard(onResetAppearance: widget.onResetAppearance),
+        const SizedBox(height: 20),
+        const SectionLabel('Live preview'),
+        const SizedBox(height: 8),
+        SurfaceCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Container(
+                    width: 8,
+                    height: 8,
+                    decoration: BoxDecoration(
+                      color: config.activeAccent,
+                      shape: BoxShape.circle,
+                      boxShadow: <BoxShadow>[
+                        BoxShadow(
+                          color: config.activeAccent.withValues(alpha: 0.8),
+                          blurRadius: 8,
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 7),
+                  Text(
+                    'ACTIVE STYLE PREVIEW',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 1.1,
+                      color: config.activeAccent,
+                    ),
+                  ),
+                  const Spacer(),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 3,
+                    ),
+                    decoration: BoxDecoration(
+                      color: config.activeAccent.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(99),
+                      border: Border.all(
+                        color: config.activeAccent.withValues(alpha: 0.28),
+                      ),
+                    ),
+                    child: Text(
+                      '${config.cardRadius.toInt()}px radius',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w800,
+                        color: config.activeAccent,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: <Widget>[
+                  IconTile(
+                    icon: Icons.palette_rounded,
+                    accent: config.activeAccent,
+                    size: 44,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        const Text(
+                          'Peridot Essential Custom Surface',
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          '${PeridotAppearanceConfig.accentNames[config.accentIndex]} accent · ${switch (config.cardStyle) {
+                            1 => 'Frosted Glass',
+                            2 => 'Neon Ambient Edge',
+                            3 => 'Minimal Slate',
+                            _ => 'AMOLED Deep',
+                          }}',
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            color: colors.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 14),
+
+        // 2. ACCENT COLOR STUDIO
+        const SectionLabel('Accent color'),
+        const SizedBox(height: 8),
+        SurfaceCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              const Text(
+                'Signature color palette',
+                style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Changes primary highlights, toggles, badges, and card accents.',
+                style: TextStyle(
+                  fontSize: 11.5,
+                  color: colors.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 9,
+                runSpacing: 9,
+                children: <Widget>[
+                  for (
+                    int i = 0;
+                    i < PeridotAppearanceConfig.accents.length;
+                    i++
+                  ) ...<Widget>[
+                    PressScale(
+                      onTap: () {
+                        widget.onAccentChanged(i);
+                        PeridotHaptics.tap();
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 7,
+                        ),
+                        decoration: BoxDecoration(
+                          color: config.accentIndex == i
+                              ? PeridotAppearanceConfig.accents[i].withValues(
+                                  alpha: 0.16,
+                                )
+                              : colors.surfaceContainer.withValues(alpha: 0.8),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: config.accentIndex == i
+                                ? PeridotAppearanceConfig.accents[i]
+                                : colors.outline.withValues(alpha: 0.22),
+                            width: config.accentIndex == i ? 1.5 : 1.0,
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: <Widget>[
+                            Container(
+                              width: 12,
+                              height: 12,
+                              decoration: BoxDecoration(
+                                color: PeridotAppearanceConfig.accents[i],
+                                shape: BoxShape.circle,
+                                boxShadow: config.accentIndex == i
+                                    ? <BoxShadow>[
+                                        BoxShadow(
+                                          color: PeridotAppearanceConfig.accents[i]
+                                              .withValues(alpha: 0.6),
+                                          blurRadius: 6,
+                                        ),
+                                      ]
+                                    : null,
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              PeridotAppearanceConfig.accentNames[i],
+                              style: TextStyle(
+                                fontSize: 11.5,
+                                fontWeight: config.accentIndex == i
+                                    ? FontWeight.w800
+                                    : FontWeight.w600,
+                                color: config.accentIndex == i
+                                    ? colors.onSurface
+                                    : colors.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 14),
+
+        // 3. CARD & SURFACE ELEMENTS
+        const SectionLabel('Card & surface elements'),
+        const SizedBox(height: 8),
+        SurfaceCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              const Text(
+                'Corner curvature',
+                style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Adjust how rounded UI cards, tiles, and panels appear.',
+                style: TextStyle(
+                  fontSize: 11.5,
+                  color: colors.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 7,
+                runSpacing: 7,
+                children: <Widget>[
+                  _PeridotAppearanceChoice(
+                    label: 'Sharp (10px)',
+                    icon: Icons.square_outlined,
+                    selected: (config.cardRadius - 10.0).abs() < 1.0,
+                    onTap: () {
+                      widget.onCardRadiusChanged(10.0);
+                      PeridotHaptics.tap();
+                    },
+                  ),
+                  _PeridotAppearanceChoice(
+                    label: 'Classic (16px)',
+                    icon: Icons.rounded_corner_rounded,
+                    selected: (config.cardRadius - 16.0).abs() < 1.0,
+                    onTap: () {
+                      widget.onCardRadiusChanged(16.0);
+                      PeridotHaptics.tap();
+                    },
+                  ),
+                  _PeridotAppearanceChoice(
+                    label: 'Squircle (22px)',
+                    icon: Icons.crop_square_rounded,
+                    selected: (config.cardRadius - 22.0).abs() < 1.0,
+                    onTap: () {
+                      widget.onCardRadiusChanged(22.0);
+                      PeridotHaptics.tap();
+                    },
+                  ),
+                  _PeridotAppearanceChoice(
+                    label: 'Pill (28px)',
+                    icon: Icons.circle_outlined,
+                    selected: (config.cardRadius - 28.0).abs() < 1.0,
+                    onTap: () {
+                      widget.onCardRadiusChanged(28.0);
+                      PeridotHaptics.tap();
+                    },
+                  ),
+                ],
+              ),
+              const Divider(height: 22),
+              const Text(
+                'Surface visual style',
+                style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Select the material finish for cards across all screens.',
+                style: TextStyle(
+                  fontSize: 11.5,
+                  color: colors.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 7,
+                runSpacing: 7,
+                children: <Widget>[
+                  _PeridotAppearanceChoice(
+                    label: 'AMOLED Deep',
+                    icon: Icons.dark_mode_outlined,
+                    selected: config.cardStyle == 0,
+                    onTap: () {
+                      widget.onCardStyleChanged(0);
+                      PeridotHaptics.tap();
+                    },
+                  ),
+                  _PeridotAppearanceChoice(
+                    label: 'Frosted Glass',
+                    icon: Icons.blur_on_rounded,
+                    selected: config.cardStyle == 1,
+                    onTap: () {
+                      widget.onCardStyleChanged(1);
+                      PeridotHaptics.tap();
+                    },
+                  ),
+                  _PeridotAppearanceChoice(
+                    label: 'Neon Edge',
+                    icon: Icons.auto_awesome_outlined,
+                    selected: config.cardStyle == 2,
+                    onTap: () {
+                      widget.onCardStyleChanged(2);
+                      PeridotHaptics.tap();
+                    },
+                  ),
+                  _PeridotAppearanceChoice(
+                    label: 'Minimal Slate',
+                    icon: Icons.layers_outlined,
+                    selected: config.cardStyle == 3,
+                    onTap: () {
+                      widget.onCardStyleChanged(3);
+                      PeridotHaptics.tap();
+                    },
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 14),
+
+        // 4. VISUAL ELEMENTS & DASHBOARD
+        const SectionLabel('Visual elements'),
+        const SizedBox(height: 8),
+        SurfaceCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Row(
+                children: <Widget>[
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        const Text(
+                          'Device pulse ambient halo',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Display a glowing ambient halo behind the Home dashboard.',
+                          style: TextStyle(
+                            fontSize: 11.2,
+                            color: colors.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Switch.adaptive(
+                    value: config.heroGlow,
+                    onChanged: (bool enabled) {
+                      widget.onHeroGlowChanged(enabled);
+                      PeridotHaptics.tap();
+                    },
+                  ),
+                ],
+              ),
+              const Divider(height: 20),
+              const Text(
+                'CPU core visualizer style',
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Choose how processor cores are displayed on the Home hero.',
+                style: TextStyle(
+                  fontSize: 11.2,
+                  color: colors.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 7,
+                runSpacing: 7,
+                children: <Widget>[
+                  _PeridotAppearanceChoice(
+                    label: 'Capsules',
+                    icon: Icons.view_column_rounded,
+                    selected: config.coreVisualizerStyle == 0,
+                    onTap: () {
+                      widget.onCoreVisualizerStyleChanged(0);
+                      PeridotHaptics.tap();
+                    },
+                  ),
+                  _PeridotAppearanceChoice(
+                    label: 'Neon Dots',
+                    icon: Icons.radio_button_checked_rounded,
+                    selected: config.coreVisualizerStyle == 1,
+                    onTap: () {
+                      widget.onCoreVisualizerStyleChanged(1);
+                      PeridotHaptics.tap();
+                    },
+                  ),
+                  _PeridotAppearanceChoice(
+                    label: 'Energy Bar',
+                    icon: Icons.horizontal_distribute_rounded,
+                    selected: config.coreVisualizerStyle == 2,
+                    onTap: () {
+                      widget.onCoreVisualizerStyleChanged(2);
+                      PeridotHaptics.tap();
+                    },
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 14),
+
+        // 5. THEME MODE
+        const SectionLabel('Theme'),
+        const SizedBox(height: 9),
+        SurfaceCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              const Text(
+                'App theme',
+                style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Use Android automatically or force Peridot Essential to Light or pure AMOLED Black.',
+                style: TextStyle(
+                  fontSize: 11.5,
+                  color: colors.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 7,
+                runSpacing: 7,
+                children: <Widget>[
+                  _PeridotAppearanceChoice(
+                    label: 'System',
+                    icon: Icons.brightness_auto_rounded,
+                    selected:
+                        config.themePreference == PeridotThemePreference.system,
+                    onTap: () => widget.onThemePreferenceChanged(
+                      PeridotThemePreference.system,
+                    ),
+                  ),
+                  _PeridotAppearanceChoice(
+                    label: 'Light',
+                    icon: Icons.light_mode_rounded,
+                    selected:
+                        config.themePreference == PeridotThemePreference.light,
+                    onTap: () => widget.onThemePreferenceChanged(
+                      PeridotThemePreference.light,
+                    ),
+                  ),
+                  _PeridotAppearanceChoice(
+                    label: 'AMOLED',
+                    icon: Icons.dark_mode_rounded,
+                    selected:
+                        config.themePreference == PeridotThemePreference.dark,
+                    onTap: () => widget.onThemePreferenceChanged(
+                      PeridotThemePreference.dark,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 13),
+
+        // 6. INTERACTION & MOTION
+        const SectionLabel('Interaction'),
+        const SizedBox(height: 9),
+        ValueListenableBuilder<int>(
+          valueListenable: PeridotInteractionSettings.revision,
+          builder: (BuildContext context, int revision, Widget? child) {
+            final ColorScheme colors = Theme.of(context).colorScheme;
+
+            return SurfaceCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Row(
+                    children: <Widget>[
+                      Container(
+                        width: 38,
+                        height: 38,
+                        decoration: BoxDecoration(
+                          color: colors.primary.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(13),
+                        ),
+                        child: Icon(
+                          Icons.motion_photos_on_rounded,
+                          color: colors.primary,
+                          size: 21,
+                        ),
+                      ),
+                      const SizedBox(width: 11),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: <Widget>[
+                            const Text(
+                              'Motion feel',
+                              style: TextStyle(
+                                fontSize: 14.5,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              PeridotInteractionSettings.motionLabel,
+                              style: TextStyle(
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.w700,
+                                color: colors.primary,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: colors.primary.withValues(alpha: 0.10),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Text(
+                          '${PeridotInteractionSettings.motionSpeed.toStringAsFixed(2)}×',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w800,
+                            color: colors.primary,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 9),
+                  Text(
+                    'One control now tunes navigation pace, easing, press depth, fades, and page movement across the whole app.',
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      height: 1.35,
+                      color: colors.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: 11),
+                  Container(
+                    height: 42,
+                    padding: const EdgeInsets.symmetric(horizontal: 7),
+                    decoration: BoxDecoration(
+                      color: colors.surfaceContainerHighest.withValues(
+                        alpha: 0.45,
+                      ),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(
+                        color: colors.outline.withValues(alpha: 0.28),
+                      ),
+                    ),
+                    child: AnimatedAlign(
+                      duration: PeridotInteractionSettings.motionDuration(300),
+                      curve: PeridotInteractionSettings.transitionCurve,
+                      alignment: Alignment(
+                        -1.0 + PeridotInteractionSettings.motionProgress * 2.0,
+                        0,
+                      ),
+                      child: Container(
+                        width: 28,
+                        height: 28,
+                        decoration: BoxDecoration(
+                          color: colors.primary,
+                          borderRadius: BorderRadius.circular(10),
+                          boxShadow: <BoxShadow>[
+                            BoxShadow(
+                              color: colors.primary.withValues(alpha: 0.28),
+                              blurRadius: 12,
+                              spreadRadius: -2,
+                            ),
+                          ],
+                        ),
+                        child: Icon(
+                          Icons.arrow_forward_rounded,
+                          size: 17,
+                          color: colors.onPrimary,
+                        ),
+                      ),
+                    ),
+                  ),
+                  Slider(
+                    min: 0.75,
+                    max: 1.35,
+                    divisions: 24,
+                    value: PeridotInteractionSettings.motionSpeed,
+                    onChangeStart: (_) {
+                      widget.onHorizontalControlActive(true);
+                      PeridotHaptics.segment();
+                    },
+                    onChanged: (double value) {
+                      setState(() {
+                        PeridotInteractionSettings.previewMotionSpeed(value);
+                      });
+                      PeridotHaptics.frequentSegment();
+                    },
+                    onChangeEnd: (double value) {
+                      PeridotInteractionSettings.commitMotionSpeed(value);
+                      widget.onHorizontalControlActive(false);
+                      PeridotHaptics.confirm();
+                    },
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: <Widget>[
+                        Text(
+                          'Relaxed',
+                          style: TextStyle(
+                            fontSize: 10.5,
+                            color: colors.onSurfaceVariant,
+                          ),
+                        ),
+                        Text(
+                          'Balanced',
+                          style: TextStyle(
+                            fontSize: 10.5,
+                            color: colors.onSurfaceVariant,
+                          ),
+                        ),
+                        Text(
+                          'Direct',
+                          style: TextStyle(
+                            fontSize: 10.5,
+                            color: colors.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton.icon(
+                      onPressed: () {
+                        setState(() {
+                          PeridotInteractionSettings.resetMotion();
+                        });
+                        PeridotHaptics.confirm();
+                      },
+                      icon: const Icon(Icons.restart_alt_rounded, size: 17),
+                      label: const Text('Reset to balanced'),
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  const Divider(height: 18),
+                  Row(
+                    children: <Widget>[
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: <Widget>[
+                            const Text(
+                              'Haptic feedback',
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'Android semantic feedback for taps, toggles, choices and sliders.',
+                              style: TextStyle(
+                                fontSize: 11.2,
+                                color: colors.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Switch.adaptive(
+                        value: PeridotInteractionSettings.hapticsEnabled,
+                        onChanged: (bool enabled) {
+                          if (!enabled) {
+                            PeridotHaptics.toggle(false);
+                          }
+
+                          PeridotInteractionSettings.setHaptics(enabled);
+
+                          if (enabled) {
+                            PeridotHaptics.confirm();
+                          }
+                        },
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
+        const SizedBox(height: 13),
+
+        // 7. APP BACKGROUND
+        const SectionLabel('App background'),
+        const SizedBox(height: 9),
+        SurfaceCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              const Text(
+                'Background style',
+                style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Midnight and Aurora now stay behind the controls instead of competing with them.',
+                style: TextStyle(
+                  fontSize: 11.5,
+                  color: colors.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 7,
+                runSpacing: 7,
+                children: <Widget>[
+                  _PeridotAppearanceChoice(
+                    label: 'System',
+                    icon: Icons.phone_android_rounded,
+                    selected:
+                        config.backgroundStyle == PeridotBackgroundStyle.system,
+                    onTap: () => widget.onBackgroundStyleChanged(
+                      PeridotBackgroundStyle.system,
+                    ),
+                  ),
+                  _PeridotAppearanceChoice(
+                    label: 'Midnight',
+                    icon: Icons.nights_stay_rounded,
+                    selected:
+                        config.backgroundStyle == PeridotBackgroundStyle.midnight,
+                    onTap: () => widget.onBackgroundStyleChanged(
+                      PeridotBackgroundStyle.midnight,
+                    ),
+                  ),
+                  _PeridotAppearanceChoice(
+                    label: 'Aurora',
+                    icon: Icons.auto_awesome_rounded,
+                    selected:
+                        config.backgroundStyle == PeridotBackgroundStyle.aurora,
+                    onTap: () => widget.onBackgroundStyleChanged(
+                      PeridotBackgroundStyle.aurora,
+                    ),
+                  ),
+                  _PeridotAppearanceChoice(
+                    label: _choosingPhoto ? 'Opening…' : 'Gallery',
+                    icon: Icons.photo_library_rounded,
+                    selected:
+                        config.backgroundStyle == PeridotBackgroundStyle.custom,
+                    onTap: _choosePhoto,
+                  ),
+                ],
+              ),
+              if (_photoMessage != null) ...<Widget>[
+                const SizedBox(height: 9),
+                Text(
+                  _photoMessage!,
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: colors.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+        const SizedBox(height: 9),
+        SurfaceCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Row(
+                children: <Widget>[
+                  const Expanded(
+                    child: Text(
+                      'Background blur',
+                      style: TextStyle(
+                        fontSize: 14.5,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  Text(
+                    config.backgroundBlur < 0.5
+                        ? 'Off'
+                        : config.backgroundBlur.toStringAsFixed(0),
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w800,
+                      color: colors.primary,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 2),
+              Text(
+                'Blur affects only the wallpaper. Cards, text and controls remain sharp.',
+                style: TextStyle(
+                  fontSize: 11.5,
+                  color: colors.onSurfaceVariant,
+                ),
+              ),
+              Slider(
+                min: 0,
+                max: 28,
+                divisions: 28,
+                value: config.backgroundBlur.clamp(0.0, 28.0).toDouble(),
+                onChangeStart: (_) {
+                  widget.onHorizontalControlActive(true);
+                  PeridotHaptics.segment();
+                },
+                onChanged: (double value) {
+                  widget.onBlurChanged(value);
+                  PeridotHaptics.frequentSegment();
+                },
+                onChangeEnd: (double value) {
+                  widget.onBlurChangeEnd(value);
+                  widget.onHorizontalControlActive(false);
+                  PeridotHaptics.confirm();
+                },
+              ),
+            ],
+          ),
+        ),
+        if (config.customPath.isNotEmpty) ...<Widget>[
+          const SizedBox(height: 9),
+          SurfaceCard(
+            child: Row(
+              children: <Widget>[
+                Icon(
+                  Icons.check_circle_rounded,
+                  size: 20,
+                  color: colors.secondary,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'The selected image is copied into Peridot Essential private storage so it remains usable after photo permission changes.',
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      height: 1.32,
+                      color: colors.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+        const SizedBox(height: 9),
+        PressScale(
+          onTap: widget.onResetAppearance,
+          child: SurfaceCard(
+            child: Row(
+              children: <Widget>[
+                Icon(
+                  Icons.restart_alt_rounded,
+                  color: colors.secondary,
+                  size: 22,
+                ),
+                const SizedBox(width: 10),
+                const Expanded(
+                  child: Text(
+                    'Reset all appearance settings',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _PeridotGalleryItem {
+  const _PeridotGalleryItem({required this.path, required this.modified});
+
+  final String path;
+  final DateTime modified;
+}
+
+class _PeridotGalleryBrowser extends StatefulWidget {
+  const _PeridotGalleryBrowser({required this.permissionState});
+
+  final int permissionState;
+
+  @override
+  State<_PeridotGalleryBrowser> createState() => _PeridotGalleryBrowserState();
+}
+
+class _PeridotGalleryBrowserState extends State<_PeridotGalleryBrowser> {
+  static const int _maxItems = 360;
+
+  static const List<String> _roots = <String>[
+    '/storage/emulated/0/DCIM',
+    '/storage/emulated/0/Pictures',
+    '/storage/emulated/0/Download',
+  ];
+
+  bool _loading = true;
+  String? _error;
+  List<_PeridotGalleryItem> _items = const <_PeridotGalleryItem>[];
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  bool _supported(String path) {
+    final String lower = path.toLowerCase();
+
+    return lower.endsWith('.jpg') ||
+        lower.endsWith('.jpeg') ||
+        lower.endsWith('.png') ||
+        lower.endsWith('.webp');
+  }
+
+  Future<bool> _readable(File file) async {
+    try {
+      final RandomAccessFile handle = await file.open(mode: FileMode.read);
+      await handle.close();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> _load() async {
+    final List<_PeridotGalleryItem> result = <_PeridotGalleryItem>[];
+    final Set<String> seen = <String>{};
+
+    try {
+      for (final String rootPath in _roots) {
+        if (result.length >= _maxItems) {
+          break;
+        }
+
+        final Directory root = Directory(rootPath);
+
+        if (!await root.exists()) {
+          continue;
+        }
+
+        try {
+          await for (final FileSystemEntity entity in root.list(
+            recursive: true,
+            followLinks: false,
+          )) {
+            if (result.length >= _maxItems) {
+              break;
+            }
+
+            if (entity is! File) {
+              continue;
+            }
+
+            final String path = entity.path;
+
+            if (!_supported(path) || !seen.add(path)) {
+              continue;
+            }
+
+            if (!await _readable(entity)) {
+              continue;
+            }
+
+            DateTime modified;
+
+            try {
+              modified = await entity.lastModified();
+            } catch (_) {
+              modified = DateTime.fromMillisecondsSinceEpoch(0);
+            }
+
+            result.add(_PeridotGalleryItem(path: path, modified: modified));
+          }
+        } catch (_) {}
+      }
+
+      result.sort(
+        (_PeridotGalleryItem a, _PeridotGalleryItem b) =>
+            b.modified.compareTo(a.modified),
+      );
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _items = result;
+        _loading = false;
+
+        if (result.isEmpty) {
+          _error = widget.permissionState == 1
+              ? 'Android granted selected-photo '
+                    'access, but no readable JPG, '
+                    'PNG or WebP files were exposed '
+                    'through the shared media paths.'
+              : 'No readable JPG, PNG or WebP '
+                    'images were found in DCIM, '
+                    'Pictures or Download.';
+        }
+      });
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _loading = false;
+        _error = 'Unable to read the shared media library.';
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme colors = Theme.of(context).colorScheme;
+
+    return SafeArea(
+      child: Material(
+        color: colors.surface,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+        clipBehavior: Clip.antiAlias,
+        child: Column(
+          children: <Widget>[
+            const SizedBox(height: 9),
+            Container(
+              width: 38,
+              height: 4,
+              decoration: BoxDecoration(
+                color: colors.outline.withValues(alpha: 0.52),
+                borderRadius: BorderRadius.circular(99),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 10, 10),
+              child: Row(
+                children: <Widget>[
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        const Text(
+                          'Choose background',
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: -0.25,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          widget.permissionState == 1
+                              ? 'Selected-photo access'
+                              : 'Photos on this device',
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            color: colors.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: const Icon(Icons.close_rounded),
+                  ),
+                ],
+              ),
+            ),
+            Divider(height: 1, color: PeridotSurfaceLines.divider(colors)),
+            Expanded(
+              child: _loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : _error != null
+                  ? Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Center(
+                        child: Text(
+                          _error!,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: colors.onSurfaceVariant,
+                            height: 1.35,
+                          ),
+                        ),
+                      ),
+                    )
+                  : GridView.builder(
+                      padding: const EdgeInsets.all(3),
+                      gridDelegate:
+                          const SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: 3,
+                            crossAxisSpacing: 3,
+                            mainAxisSpacing: 3,
+                          ),
+                      itemCount: _items.length,
+                      itemBuilder: (BuildContext context, int index) {
+                        final _PeridotGalleryItem item = _items[index];
+
+                        return GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onTap: () {
+                            Navigator.of(context).pop(item.path);
+                          },
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(4),
+                            child: Image.file(
+                              File(item.path),
+                              fit: BoxFit.cover,
+                              cacheWidth: 360,
+                              filterQuality: FilterQuality.low,
+                              gaplessPlayback: true,
+                              errorBuilder:
+                                  (
+                                    BuildContext context,
+                                    Object error,
+                                    StackTrace? stack,
+                                  ) {
+                                    return ColoredBox(
+                                      color: colors.surfaceContainer,
+                                      child: Icon(
+                                        Icons.broken_image_outlined,
+                                        color: colors.onSurfaceVariant,
+                                      ),
+                                    );
+                                  },
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PeridotAppearanceChoice extends StatelessWidget {
+  const _PeridotAppearanceChoice({
+    required this.label,
+    required this.icon,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final IconData icon;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme colors = theme.colorScheme;
+    final bool dark = theme.brightness == Brightness.dark;
+
+    return PressScale(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOutCubic,
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+        decoration: BoxDecoration(
+          color: selected
+              ? colors.primary.withValues(alpha: dark ? 0.17 : 0.12)
+              : colors.surfaceContainer.withValues(alpha: dark ? 0.92 : 0.94),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: selected
+                ? colors.primary.withValues(alpha: 0.32)
+                : colors.outline.withValues(alpha: dark ? 0.62 : 0.72),
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Icon(
+              icon,
+              size: 17,
+              color: selected ? colors.primary : colors.onSurfaceVariant,
+            ),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 11.5,
+                fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class HomeScreen extends StatelessWidget {
+  const HomeScreen({
+    required this.onOpen,
+    required this.onHubs,
+    required this.onSupport,
+    super.key,
+  });
+
+  final ValueChanged<PeridotScreen> onOpen;
+  final VoidCallback onHubs;
+  final VoidCallback onSupport;
+
+  @override
+  Widget build(BuildContext context) {
+    return PeridotScrollPage(
+      children: <Widget>[
+        const PeridotHeader(
+          title: 'Peridot Essential',
+          subtitle: 'Precision you can feel.',
+          large: false,
+        ),
+        const SizedBox(height: 10),
+        _HomePulseHero(onOpen: onOpen),
+        const SizedBox(height: 14),
+        const SectionLabel('Live hardware'),
+        const SizedBox(height: 8),
+        _LiveOverviewGrid(onOpen: onOpen),
+        const SizedBox(height: 14),
+        const SectionLabel('Quick controls'),
+        const SizedBox(height: 8),
+        _HomeQuickActions(onOpen: onOpen),
+        const SizedBox(height: 14),
+        _ControlCenterPortal(onTap: onHubs),
+        const SizedBox(height: 14),
+        const SectionLabel('Useful shortcuts'),
+        const SizedBox(height: 8),
+        _HomeShortcutPanel(onOpen: onOpen, onSupport: onSupport),
+        const SizedBox(height: 12),
+      ],
+    );
+  }
+}
+
+class _HomePulseHero extends StatelessWidget {
+  const _HomePulseHero({required this.onOpen});
+
+  final ValueChanged<PeridotScreen> onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    return _BackendSnapshotBuilder(
+      builder: (PeridotBackendSnapshot snapshot) {
+        final ThemeData theme = Theme.of(context);
+        final ColorScheme colors = theme.colorScheme;
+        final bool dark = theme.brightness == Brightness.dark;
+        final PeridotBackend backend = PeridotBackend.instance;
+        final PeridotAppearanceConfig appearance = PeridotAppearanceScope.of(context);
+        final int activePerf = snapshot.performanceProfile >= 0
+            ? snapshot.performanceProfile
+            : 0;
+        final String profile = _peridotPerformanceLabel(activePerf);
+        final Color profileAccent = switch (activePerf) {
+          2 => const Color(0xFF35C997),
+          1 => const Color(0xFFFFB84D),
+          3 => const Color(0xFFFF5252),
+          _ => const Color(0xFF4EA8DE),
+        };
+        final IconData profileIcon = switch (activePerf) {
+          2 => Icons.eco_rounded,
+          1 => Icons.sports_esports_rounded,
+          3 => Icons.local_fire_department_rounded,
+          _ => Icons.balance_rounded,
+        };
+        final String profileDescription = switch (activePerf) {
+          2 => 'Efficiency-first clocks and reduced power demand',
+          1 => 'Unrestricted 264–1150 MHz GPU scaling with msm-adreno-tz',
+          3 => 'GPU requests a 1150 MHz frequency floor and ceiling',
+          _ => 'OEM-balanced performance and efficiency for everyday use',
+        };
+        final int onlineCores = _peridotOnlineCoreCount(snapshot);
+        final String battery = snapshot.batteryCapacity >= 0
+            ? '${snapshot.batteryCapacity}%'
+            : '—';
+        final String temperature = snapshot.batteryTempC == null
+            ? '—'
+            : '${snapshot.batteryTempC!.toStringAsFixed(1)}°C';
+        final String touchValue = switch (snapshot.touchState) {
+          1 => '250 Hz',
+          2 => '480 Hz (pending)',
+          _ => 'OEM',
+        };
+        final String touchDetail = switch (snapshot.touchState) {
+          1 => 'Game mode',
+          2 => 'Pending adaptation',
+          _ => '125 Hz observed',
+        };
+        final int liveGpuFreq = backend.extendedValue(46) >= 260
+            ? backend.extendedValue(46)
+            : 0;
+        final String gpu = liveGpuFreq > 0 ? '$liveGpuFreq MHz' : '—';
+
+        final Widget hero = Stack(
+          children: <Widget>[
+            if (appearance.heroGlow)
+              Positioned.fill(
+                child: Container(
+                  margin: const EdgeInsets.all(4),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(
+                      appearance.cardRadius + 5,
+                    ),
+                    boxShadow: <BoxShadow>[
+                      BoxShadow(
+                        color: profileAccent.withValues(alpha: 0.17),
+                        blurRadius: 31,
+                        spreadRadius: -4,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            SurfaceCard(
+              padding: EdgeInsets.zero,
+              accent: profileAccent,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(appearance.cardRadius),
+                child: Stack(
+                  children: <Widget>[
+                    Positioned.fill(
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: <Color>[
+                              profileAccent.withValues(
+                                alpha: dark ? 0.15 : 0.12,
+                              ),
+                              colors.surface.withValues(
+                                alpha: dark ? 0.76 : 0.90,
+                              ),
+                              const Color(0xFFB087FF)
+                                  .withValues(alpha: dark ? 0.06 : 0.045),
+                            ],
+                            stops: const <double>[0, 0.58, 1],
+                          ),
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      right: -48,
+                      top: -62,
+                      width: 150,
+                      height: 150,
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          gradient: RadialGradient(
+                            colors: <Color>[
+                              profileAccent.withValues(
+                                alpha: dark ? 0.15 : 0.12,
+                              ),
+                              profileAccent.withValues(alpha: 0),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      left: -38,
+                      bottom: -64,
+                      width: 132,
+                      height: 132,
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          gradient: RadialGradient(
+                            colors: <Color>[
+                              colors.secondary.withValues(
+                                alpha: dark ? 0.08 : 0.055,
+                              ),
+                              colors.secondary.withValues(alpha: 0),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(15, 13, 15, 13),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: <Widget>[
+                          Row(
+                            children: <Widget>[
+                              Container(
+                                width: 7,
+                                height: 7,
+                                decoration: BoxDecoration(
+                                  color: profileAccent,
+                                  shape: BoxShape.circle,
+                                  boxShadow: <BoxShadow>[
+                                    BoxShadow(
+                                      color: profileAccent.withValues(
+                                        alpha: 0.60,
+                                      ),
+                                      blurRadius: 7,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 7),
+                              Expanded(
+                                child: Text(
+                                  'DEVICE PULSE',
+                                  style: TextStyle(
+                                    fontSize: 9.4,
+                                    fontWeight: FontWeight.w800,
+                                    letterSpacing: 1.05,
+                                    color: colors.onSurfaceVariant,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              ConstrainedBox(
+                                constraints: const BoxConstraints(
+                                  maxWidth: 120,
+                                ),
+                                child: _HomeLiveBadge(snapshot: snapshot),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 11),
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: <Widget>[
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: <Widget>[
+                                    Text(
+                                      profile,
+                                      style: const TextStyle(
+                                        fontSize: 27,
+                                        height: 1,
+                                        fontWeight: FontWeight.w900,
+                                        letterSpacing: -0.72,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      profileDescription,
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        height: 1.28,
+                                        fontWeight: FontWeight.w500,
+                                        color: colors.onSurfaceVariant,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Container(
+                                width: 49,
+                                height: 49,
+                                decoration: BoxDecoration(
+                                  color: profileAccent.withValues(alpha: 0.12),
+                                  borderRadius: BorderRadius.circular(17),
+                                  border: Border.all(
+                                    color: profileAccent.withValues(
+                                      alpha: 0.22,
+                                    ),
+                                  ),
+                                ),
+                                child: Icon(
+                                  profileIcon,
+                                  size: 25,
+                                  color: profileAccent,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          _HomeCoreVisualizer(
+                            snapshot: snapshot,
+                            onlineCores: onlineCores,
+                            style: appearance.coreVisualizerStyle,
+                          ),
+                          const SizedBox(height: 10),
+                          Row(
+                            children: <Widget>[
+                              Expanded(
+                                child: _HomeHeroMetric(
+                                  label: 'BATTERY',
+                                  value: battery,
+                                  detail: temperature,
+                                  icon: Icons.battery_5_bar_rounded,
+                                  accent: const Color(0xFF41C98A),
+                                  onTap: () => onOpen(PeridotScreen.charging),
+                                ),
+                              ),
+                              const SizedBox(width: 7),
+                              Expanded(
+                                child: _HomeHeroMetric(
+                                  label: 'MALI GPU',
+                                  value: gpu,
+                                  detail: liveGpuFreq > 0
+                                      ? 'Live clock'
+                                      : 'Waiting for GPU',
+                                  icon: Icons.sports_esports_rounded,
+                                  accent: const Color(0xFFFF5252),
+                                  onTap: () => onOpen(PeridotScreen.maliGpu),
+                                ),
+                              ),
+                              const SizedBox(width: 7),
+                              Expanded(
+                                child: _HomeHeroMetric(
+                                  label: 'TOUCH',
+                                  value: touchValue,
+                                  detail: touchDetail,
+                                  icon: Icons.touch_app_rounded,
+                                  accent: const Color(0xFF41C98A),
+                                  onTap: () => onOpen(PeridotScreen.touchBoost),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        );
+
+        return TweenAnimationBuilder<double>(
+          tween: Tween<double>(begin: 0, end: 1),
+          duration: PeridotInteractionSettings.motionDuration(420),
+          curve: PeridotInteractionSettings.transitionCurve,
+          child: hero,
+          builder: (BuildContext context, double value, Widget? child) {
+            return Opacity(
+              opacity: value,
+              child: Transform.translate(
+                offset: Offset(0, (1 - value) * 12),
+                child: child,
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+}
+
+class _HomeHeroMetric extends StatelessWidget {
+  const _HomeHeroMetric({
+    required this.label,
+    required this.value,
+    required this.detail,
+    required this.icon,
+    required this.accent,
+    required this.onTap,
+  });
+
+  final String label;
+  final String value;
+  final String detail;
+  final IconData icon;
+  final Color accent;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme colors = Theme.of(context).colorScheme;
+
+    return PressScale(
+      onTap: onTap,
+      child: Container(
+        constraints: const BoxConstraints(minHeight: 66),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
+        decoration: BoxDecoration(
+          color: colors.surface.withValues(alpha: 0.52),
+          borderRadius: BorderRadius.circular(13),
+          border: Border.all(
+            color: PeridotSurfaceLines.inset(colors),
+            width: 0.85,
+          ),
+        ),
+        child: Row(
+          children: <Widget>[
+            Icon(icon, size: 15, color: accent),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(
+                    label,
+                    style: TextStyle(
+                      fontSize: 8.5,
+                      height: 1.2,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 0.40,
+                      color: colors.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    value,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      height: 1.2,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    detail,
+                    style: TextStyle(
+                      fontSize: 10,
+                      height: 1.2,
+                      color: colors.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _HomeLiveBadge extends StatelessWidget {
+  const _HomeLiveBadge({required this.snapshot});
+
+  final PeridotBackendSnapshot snapshot;
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme colors = Theme.of(context).colorScheme;
+    final bool online = snapshot.controlsAvailable;
+    final Color accent = online
+        ? const Color(0xFF41C98A)
+        : colors.onSurfaceVariant;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: accent.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: accent.withValues(alpha: 0.24)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Container(
+            width: 6,
+            height: 6,
+            decoration: BoxDecoration(color: accent, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 5),
+          Flexible(
+            child: Text(
+              snapshot.serviceStatusBadgeLabel,
+              style: TextStyle(
+                fontSize: 8.8,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 0.48,
+                color: accent,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HomeCoreVisualizer extends StatelessWidget {
+  const _HomeCoreVisualizer({
+    required this.snapshot,
+    required this.onlineCores,
+    required this.style,
+  });
+
+  final PeridotBackendSnapshot snapshot;
+  final int onlineCores;
+  final int style;
+
+  Color _coreColor(int cpu) {
+    if (!snapshot.cpuOnline(cpu)) {
+      return const Color(0xFF252A31);
+    }
+    if (cpu == 7) {
+      return const Color(0xFFFF8E3C);
+    }
+    if (cpu >= 4) {
+      return const Color(0xFFA066FF);
+    }
+    return const Color(0xFF4EA8DE);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme colors = Theme.of(context).colorScheme;
+
+    Widget indicator(int cpu) {
+      final Color color = _coreColor(cpu);
+      final bool online = snapshot.cpuOnline(cpu);
+
+      if (style == 1) {
+        return Container(
+          width: 9,
+          height: 9,
+          margin: const EdgeInsets.symmetric(horizontal: 2.4),
+          decoration: BoxDecoration(
+            color: color,
+            shape: BoxShape.circle,
+            boxShadow: online
+                ? <BoxShadow>[
+                    BoxShadow(
+                      color: color.withValues(alpha: 0.55),
+                      blurRadius: 5,
+                    ),
+                  ]
+                : null,
+          ),
+        );
+      }
+
+      if (style == 2) {
+        return Container(
+          width: 12,
+          height: 9,
+          margin: const EdgeInsets.symmetric(horizontal: 0.8),
+          color: color,
+        );
+      }
+
+      return Container(
+        width: 8,
+        height: 14,
+        margin: const EdgeInsets.symmetric(horizontal: 2.3),
+        decoration: BoxDecoration(
+          color: color,
+          borderRadius: BorderRadius.circular(3),
+          boxShadow: online
+              ? <BoxShadow>[
+                  BoxShadow(
+                    color: color.withValues(alpha: 0.38),
+                    blurRadius: 4,
+                  ),
+                ]
+              : null,
+        ),
+      );
+    }
+
+    Widget indicators = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[for (int cpu = 0; cpu < 8; cpu++) indicator(cpu)],
+    );
+
+    if (style == 2) {
+      indicators = ClipRRect(
+        borderRadius: BorderRadius.circular(99),
+        child: indicators,
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: colors.surface.withValues(alpha: 0.45),
+        borderRadius: BorderRadius.circular(13),
+        border: Border.all(color: PeridotSurfaceLines.inset(colors), width: 0.85),
+      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final heading = Row(
+            children: <Widget>[
+              Text(
+                'CPU',
+                style: TextStyle(
+                  fontSize: 8.6,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0.72,
+                  color: colors.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(width: 7),
+              Expanded(
+                child: Text(
+                  snapshot.ready
+                      ? '$onlineCores / 8 online'
+                      : 'Waiting for system',
+                  style: const TextStyle(
+                    fontSize: 10.3,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          );
+          if (constraints.maxWidth < 280 ||
+              MediaQuery.textScalerOf(context).scale(10) > 12) {
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [heading, const SizedBox(height: 8), indicators],
+            );
+          }
+          return Row(
+            children: [
+              Expanded(child: heading),
+              indicators,
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _HomeQuickActions extends StatelessWidget {
+  const _HomeQuickActions({required this.onOpen});
+
+  final ValueChanged<PeridotScreen> onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme colors = Theme.of(context).colorScheme;
+
+    return SurfaceCard(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 7),
+      child: Row(
+        children: <Widget>[
+          Expanded(
+            child: _HomeQuickAction(
+              title: 'Adreno GPU',
+              subtitle: 'Profiles',
+              icon: Icons.sports_esports_rounded,
+              accent: const Color(0xFFFF5252),
+              onTap: () => onOpen(PeridotScreen.maliGpu),
+            ),
+          ),
+          Container(
+            width: 1,
+            height: 42,
+            color: PeridotSurfaceLines.divider(colors),
+          ),
+          Expanded(
+            child: _HomeQuickAction(
+              title: 'Touch',
+              subtitle: 'Response',
+              icon: Icons.touch_app_rounded,
+              accent: const Color(0xFF41C98A),
+              onTap: () => onOpen(PeridotScreen.touchBoost),
+            ),
+          ),
+          Container(
+            width: 1,
+            height: 42,
+            color: PeridotSurfaceLines.divider(colors),
+          ),
+          Expanded(
+            child: _HomeQuickAction(
+              title: 'CPU',
+              subtitle: 'Cores & MHz',
+              icon: Icons.memory_rounded,
+              accent: const Color(0xFF67C2FF),
+              onTap: () => onOpen(PeridotScreen.cpuControl),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HomeQuickAction extends StatelessWidget {
+  const _HomeQuickAction({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.accent,
+    required this.onTap,
+  });
+
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final Color accent;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme colors = Theme.of(context).colorScheme;
+
+    return PressScale(
+      onTap: onTap,
+      child: Container(
+        height: 61,
+        padding: const EdgeInsets.symmetric(horizontal: 7),
+        decoration: BoxDecoration(borderRadius: BorderRadius.circular(15)),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: <Widget>[
+            IconTile(icon: icon, accent: accent, size: 31),
+            const SizedBox(width: 7),
+            Flexible(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 11.3,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 1),
+                  Text(
+                    subtitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 8.8,
+                      color: colors.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _HomeShortcutPanel extends StatelessWidget {
+  const _HomeShortcutPanel({required this.onOpen, required this.onSupport});
+
+  final ValueChanged<PeridotScreen> onOpen;
+  final VoidCallback onSupport;
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme colors = Theme.of(context).colorScheme;
+
+    Widget divider() => Padding(
+      padding: const EdgeInsets.only(left: 47),
+      child: Divider(
+        height: 1,
+        thickness: 0.8,
+        color: PeridotSurfaceLines.divider(colors),
+      ),
+    );
+
+    return SurfaceCard(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+      child: Column(
+        children: <Widget>[
+          _HomeShortcutRow(
+            title: 'Diagnostics',
+            subtitle: 'Live sensors and hardware health',
+            icon: Icons.monitor_heart_rounded,
+            accent: const Color(0xFF74E6C6),
+            onTap: () => onOpen(PeridotScreen.diagnostics),
+          ),
+          divider(),
+          _HomeShortcutRow(
+            title: 'Resolution',
+            subtitle: 'Canvas size, density and refresh details',
+            icon: Icons.aspect_ratio_rounded,
+            accent: const Color(0xFFFFBE63),
+            onTap: () => onOpen(PeridotScreen.resolution),
+          ),
+          divider(),
+          _HomeShortcutRow(
+            title: 'Community & Support',
+            subtitle: 'Project source, help and device community',
+            icon: Icons.forum_outlined,
+            accent: const Color(0xFF67C2FF),
+            onTap: onSupport,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HomeShortcutRow extends StatelessWidget {
+  const _HomeShortcutRow({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.accent,
+    required this.onTap,
+  });
+
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final Color accent;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme colors = Theme.of(context).colorScheme;
+
+    return PressScale(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 6),
+        decoration: BoxDecoration(borderRadius: BorderRadius.circular(15)),
+        child: Row(
+          children: <Widget>[
+            Container(
+              width: 38,
+              height: 38,
+              decoration: BoxDecoration(
+                color: accent.withValues(alpha: 0.10),
+                borderRadius: BorderRadius.circular(13),
+              ),
+              child: Icon(icon, size: 19, color: accent),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 10.2,
+                      color: colors.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Icon(
+              Icons.chevron_right_rounded,
+              size: 20,
+              color: colors.onSurfaceVariant.withValues(alpha: 0.65),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DisclaimerCard extends StatelessWidget {
+  const _DisclaimerCard();
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme colors = Theme.of(context).colorScheme;
+    final bool isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: isDark
+            ? const Color(0xFF141416).withValues(alpha: 0.85)
+            : Colors.white.withValues(alpha: 0.85),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: const Color(0xFFFFB84D).withValues(alpha: 0.22),
+          width: 1.2,
+        ),
+        boxShadow: <BoxShadow>[
+          BoxShadow(
+            color: Colors.black.withValues(alpha: isDark ? 0.25 : 0.04),
+            blurRadius: 16,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFB84D).withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(
+                  Icons.shield_outlined,
+                  size: 18,
+                  color: Color(0xFFFFB84D),
+                ),
+              ),
+              const SizedBox(width: 10),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      'Kernel & Hardware Disclaimer',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0.2,
+                      ),
+                    ),
+                    SizedBox(height: 1),
+                    Text(
+                      'Direct native hardware parameter tuning',
+                      style: TextStyle(
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFFFFB84D),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            'Peridot Essential provides direct kernel hardware tuning, Qualcomm Adreno GPU frequency locks, independent CPU frequency and topology control, and AIDL display calibrations via native ROM system interfaces. GPU modes never change CPU settings. GPU profiles request KGSL frequency bounds while kernel thermal limits remain active.',
+            style: TextStyle(
+              fontSize: 11.2,
+              height: 1.45,
+              color: colors.onSurfaceVariant.withValues(alpha: 0.9),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LiveOverviewGrid extends StatelessWidget {
+  const _LiveOverviewGrid({required this.onOpen});
+
+  final ValueChanged<PeridotScreen> onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    return _BackendSnapshotBuilder(
+      builder: (PeridotBackendSnapshot snapshot) {
+        final PeridotBackend backend = PeridotBackend.instance;
+        final int onlineCores = _peridotOnlineCoreCount(snapshot);
+
+        final gpuMhz = backend.extendedValue(46);
+        final gpuValue = snapshot.ready && gpuMhz >= 260 ? '$gpuMhz MHz' : '—';
+        final gpuSubtitle = snapshot.ready
+            ? 'Live graphics clock'
+            : 'Waiting for GPU';
+
+        final String coreValue = snapshot.ready ? '$onlineCores / 8' : '—';
+        final String coreSubtitle = backend.extendedValue(34) == 1
+            ? 'Manual control'
+            : 'Auto balance';
+
+        final String display = switch (snapshot.displayColor) {
+          0 => 'Original PRO',
+          1 => 'Vivid',
+          2 => 'Saturated',
+          _ => 'OEM',
+        };
+
+        final String touch = _peridotTouchLabel(snapshot.touchState);
+
+        final int zramDiskMb = backend.extendedValue(39) > 0
+            ? backend.extendedValue(39)
+            : 8192;
+        final int zramUsedMb = backend.extendedValue(42) >= 0
+            ? backend.extendedValue(42)
+            : 0;
+        final int zramAlgCode = backend.extendedValue(44);
+        final String zramAlg = switch (zramAlgCode) {
+          1 => 'ZSTD',
+          2 => 'LZO-RLE',
+          3 => 'LZO',
+          _ => 'LZ4',
+        };
+
+        final String memoryVal = '${(zramDiskMb / 1024).toStringAsFixed(1)} GB';
+        final String memorySub = zramUsedMb > 0
+            ? '${zramUsedMb}M used · $zramAlg'
+            : 'ZRAM Pool · $zramAlg';
+
+        final ColorScheme colors = Theme.of(context).colorScheme;
+
+        return SurfaceCard(
+          padding: EdgeInsets.zero,
+          child: Column(
+            children: <Widget>[
+              Row(
+                children: <Widget>[
+                  Expanded(
+                    child: _OverviewCard(
+                      eyebrow: 'GPU',
+                      value: gpuValue,
+                      subtitle: gpuSubtitle,
+                      icon: Icons.sports_esports_rounded,
+                      accent: const Color(0xFFFF7279),
+                      onTap: () => onOpen(PeridotScreen.maliGpu),
+                    ),
+                  ),
+                  Container(
+                    width: 1,
+                    height: 54,
+                    color: PeridotSurfaceLines.divider(colors),
+                  ),
+                  Expanded(
+                    child: _OverviewCard(
+                      eyebrow: 'CPU',
+                      value: coreValue,
+                      subtitle: coreSubtitle,
+                      icon: Icons.memory_rounded,
+                      accent: const Color(0xFF67C2FF),
+                      onTap: () => onOpen(PeridotScreen.cpuControl),
+                    ),
+                  ),
+                ],
+              ),
+              Divider(
+                height: 1,
+                thickness: 0.8,
+                color: PeridotSurfaceLines.divider(colors),
+              ),
+              Row(
+                children: <Widget>[
+                  Expanded(
+                    child: _OverviewCard(
+                      eyebrow: 'DISPLAY',
+                      value: display,
+                      subtitle:
+                          snapshot.displayColor < 0 && snapshot.touchState < 1
+                          ? 'ROM colours'
+                          : touch,
+                      icon: Icons.display_settings_rounded,
+                      accent: const Color(0xFFB087FF),
+                      onTap: () => onOpen(PeridotScreen.displayStudio),
+                    ),
+                  ),
+                  Container(
+                    width: 1,
+                    height: 54,
+                    color: PeridotSurfaceLines.divider(colors),
+                  ),
+                  Expanded(
+                    child: _OverviewCard(
+                      eyebrow: 'MEMORY',
+                      value: memoryVal,
+                      subtitle: memorySub,
+                      icon: Icons.layers_rounded,
+                      accent: const Color(0xFFFFB84D),
+                      onTap: () => onOpen(PeridotScreen.zramSwap),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _OverviewCard extends StatelessWidget {
+  const _OverviewCard({
+    required this.eyebrow,
+    required this.value,
+    required this.subtitle,
+    required this.icon,
+    required this.accent,
+    this.onTap,
+  });
+
+  final String eyebrow;
+  final String value;
+  final String subtitle;
+  final IconData icon;
+  final Color accent;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final bool dark = Theme.of(context).brightness == Brightness.dark;
+    final ColorScheme colors = Theme.of(context).colorScheme;
+
+    final Widget card = Container(
+      constraints: const BoxConstraints(minHeight: 78),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+      decoration: BoxDecoration(borderRadius: BorderRadius.circular(16)),
+      child: Row(
+        children: <Widget>[
+          Container(
+            width: 35,
+            height: 35,
+            decoration: BoxDecoration(
+              color: accent.withValues(alpha: dark ? 0.13 : 0.09),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: accent.withValues(alpha: dark ? 0.24 : 0.16),
+              ),
+            ),
+            child: Icon(icon, size: 18, color: accent),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(
+                  eyebrow,
+                  style: TextStyle(
+                    fontSize: 8.4,
+                    height: 1,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.78,
+                    color: colors.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  value,
+                  style: const TextStyle(
+                    fontSize: 15,
+                    height: 1,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: -0.25,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  subtitle,
+                  style: TextStyle(
+                    fontSize: 9.4,
+                    height: 1,
+                    color: colors.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Icon(
+            Icons.chevron_right_rounded,
+            size: 17,
+            color: colors.onSurfaceVariant.withValues(alpha: 0.48),
+          ),
+        ],
+      ),
+    );
+
+    if (onTap != null) {
+      return PressScale(onTap: onTap!, child: card);
+    }
+
+    return card;
+  }
+}
+
+class _ControlCenterPortal extends StatelessWidget {
+  const _ControlCenterPortal({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final bool dark = Theme.of(context).brightness == Brightness.dark;
+    final ColorScheme colors = Theme.of(context).colorScheme;
+    final Color accent = colors.primary;
+
+    return PressScale(
+      onTap: onTap,
+      child: SurfaceCard(
+        padding: const EdgeInsets.fromLTRB(16, 15, 13, 15),
+        child: Row(
+          children: <Widget>[
+            Container(
+              width: 50,
+              height: 50,
+              decoration: BoxDecoration(
+                color: accent.withValues(alpha: dark ? 0.12 : 0.09),
+                borderRadius: BorderRadius.circular(17),
+                border: Border.all(
+                  color: accent.withValues(alpha: dark ? 0.28 : 0.18),
+                ),
+              ),
+              child: Icon(Icons.tune_rounded, color: accent, size: 25),
+            ),
+            const SizedBox(width: 13),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Row(
+                    children: <Widget>[
+                      const Expanded(
+                        child: Text(
+                          'Tune your device',
+                          style: TextStyle(
+                            fontSize: 16.5,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: -0.25,
+                          ),
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: accent.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(99),
+                          border: Border.all(
+                            color: accent.withValues(alpha: 0.25),
+                          ),
+                        ),
+                        child: Text(
+                          'CONTROL HUBS',
+                          style: TextStyle(
+                            fontSize: 8.2,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 0.7,
+                            color: accent,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Every performance and hardware control in one place',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 10.8,
+                      height: 1.25,
+                      color: colors.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 10),
+            Icon(
+              Icons.arrow_forward_ios_rounded,
+              size: 16,
+              color: colors.onSurfaceVariant,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+int _peridotOnlineCoreCount(PeridotBackendSnapshot snapshot) {
+  int count = 0;
+
+  for (int cpu = 0; cpu < 8; cpu += 1) {
+    if (snapshot.cpuOnline(cpu)) {
+      count += 1;
+    }
+  }
+
+  return count;
+}
+
+String _peridotPerformanceLabel(int profile) {
+  return switch (profile) {
+    0 => 'Stock Balanced',
+    1 => 'Gaming Dynamic',
+    2 => 'Battery Saver',
+    3 => 'Extreme Beast',
+    _ => 'Stock Balanced',
+  };
+}
+
+String _peridotTouchLabel(int profile) {
+  return switch (profile) {
+    1 => '250 Hz',
+    2 => '480 Hz (pending)',
+    _ => 'OEM Control',
+  };
+}
+
+class HubsScreen extends StatelessWidget {
+  const HubsScreen({required this.onOpen, super.key});
+
+  final ValueChanged<PeridotScreen> onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    return _BackendSnapshotBuilder(
+      builder: (PeridotBackendSnapshot snapshot) {
+        final PeridotBackend backend = PeridotBackend.instance;
+        final String battery = snapshot.batteryCapacity >= 0
+            ? '${snapshot.batteryCapacity}%'
+            : '—';
+        final int onlineCores = _peridotOnlineCoreCount(snapshot);
+        final String cores = snapshot.ready ? '$onlineCores / 8' : '—';
+        final int liveGpuFreq = backend.extendedValue(46) >= 0
+            ? backend.extendedValue(46)
+            : 0;
+        final int rawMinFreq = backend.extendedValue(47) >= 0
+            ? backend.extendedValue(47)
+            : 260;
+        final int rawMaxFreq = backend.extendedValue(48) >= 0
+            ? backend.extendedValue(48)
+            : 1150;
+        final int rawUncap = backend.extendedValue(52);
+        final int activePerf = snapshot.performanceProfile >= 0
+            ? snapshot.performanceProfile
+            : 0;
+        final bool isBeast =
+            (rawUncap == 1 && rawMinFreq == 1150 && rawMaxFreq == 1150) ||
+            activePerf == 3;
+        final String gpuLabel = liveGpuFreq >= 260
+            ? '$liveGpuFreq MHz'
+            : (isBeast ? '1150 MHz' : '$rawMaxFreq MHz');
+        final String displayMode = switch (snapshot.displayColor) {
+          0 => 'Original PRO',
+          1 => 'Vivid',
+          2 => 'Saturated',
+          _ => 'OEM Control',
+        };
+        final String touchMode = _peridotTouchLabel(snapshot.touchState);
+        final int zramDiskMb = backend.extendedValue(39) > 0
+            ? backend.extendedValue(39)
+            : 8192;
+        final String memory = '${(zramDiskMb / 1024).toStringAsFixed(1)} GB';
+        final String cpuSummary = snapshot.ready
+            ? '$cores · Core topology and clock ranges'
+            : 'Core topology and clock ranges';
+        final String chargingSummary = battery == '—'
+            ? 'Charging controls and power statistics'
+            : '$battery · Charging controls and power stats';
+
+        return PeridotScrollPage(
+          children: <Widget>[
+            const PeridotHeader(
+              title: 'Control Hubs',
+              subtitle: 'Performance, display and system controls',
+            ),
+            const SizedBox(height: 11),
+            _HubReveal(
+              child: _HubProfileHero(
+                profile: _peridotPerformanceLabel(activePerf),
+                snapshot: snapshot,
+                battery: battery,
+                cores: cores,
+                gpu: gpuLabel,
+                gpuAccent: const Color(0xFFFF5252),
+                onBattery: () => onOpen(PeridotScreen.charging),
+                onCpu: () => onOpen(PeridotScreen.cpuControl),
+                onGpu: () => onOpen(PeridotScreen.maliGpu),
+              ),
+            ),
+            const SizedBox(height: 12),
+            _HubReveal(
+              duration: 420,
+              child: _HubCategoryCard(
+                title: 'Performance',
+                subtitle: 'Compute, graphics and system policy',
+                icon: Icons.speed_rounded,
+                accent: const Color(0xFF67C2FF),
+                child: Column(
+                  children: <Widget>[
+                    _HubControlRow(
+                      title: 'CPU Core & Frequency',
+                      subtitle: cpuSummary,
+                      icon: Icons.memory_rounded,
+                      accent: const Color(0xFF67C2FF),
+                      onTap: () => onOpen(PeridotScreen.cpuControl),
+                    ),
+                    const _HubControlDivider(),
+                    _HubControlRow(
+                      emphasized: true,
+                      title: 'Adreno GPU & KGSL',
+                      subtitle: 'Clocks, boost and power policy',
+                      value: gpuLabel,
+                      icon: Icons.sports_esports_rounded,
+                      accent: const Color(0xFFFF5252),
+                      onTap: () => onOpen(PeridotScreen.maliGpu),
+                    ),
+                    const _HubControlDivider(),
+                    _HubControlRow(
+                      title: 'Advanced Configuration',
+                      subtitle: 'Governors, scheduler & device tuning',
+                      icon: Icons.tune_rounded,
+                      accent: const Color(0xFFFFB84D),
+                      onTap: () => onOpen(PeridotScreen.advancedConfiguration),
+                    ),
+                    const _HubControlDivider(),
+                    _HubControlRow(
+                      title: 'Memory DVFS & UFS',
+                      subtitle: 'DRAM & storage ranges and exact locks',
+                      icon: Icons.storage_rounded,
+                      accent: const Color(0xFFB087FF),
+                      onTap: () => onOpen(PeridotScreen.subsystemClocks),
+                    ),
+                    const _HubControlDivider(),
+                    _HubControlRow(
+                      title: 'Per-App Controls',
+                      subtitle: 'Set individual touch, refresh rate, CPU and GPU controls for each app.',
+                      wrapSubtitle: true,
+                      icon: Icons.apps_rounded,
+                      accent: const Color(0xFFB087FF),
+                      onTap: () => onOpen(PeridotScreen.perAppControls),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            _HubReveal(
+              duration: 500,
+              child: _HubCategoryCard(
+                title: 'Display & Input',
+                subtitle: 'Touch response, color and canvas',
+                icon: Icons.touch_app_rounded,
+                accent: const Color(0xFFB087FF),
+                child: Column(
+                  children: <Widget>[
+                    _HubControlRow(
+                      title: 'Touch Response',
+                      subtitle: '$touchMode · Sampling and instant boost',
+                      icon: Icons.swipe_rounded,
+                      accent: const Color(0xFF41C98A),
+                      onTap: () => onOpen(PeridotScreen.touchBoost),
+                    ),
+                    const _HubControlDivider(),
+                    _HubControlRow(
+                      title: 'Display Studio',
+                      subtitle: '$displayMode · Color and HDR tuning',
+                      icon: Icons.palette_rounded,
+                      accent: const Color(0xFFB087FF),
+                      onTap: () => onOpen(PeridotScreen.displayStudio),
+                    ),
+                    const _HubControlDivider(),
+                    _HubControlRow(
+                      title: 'System Colors',
+                      subtitle: 'Material You palettes for Android & apps',
+                      icon: Icons.color_lens_rounded,
+                      accent: const Color(0xFFB087FF),
+                      onTap: () => onOpen(PeridotScreen.systemColors),
+                    ),
+                    const _HubControlDivider(),
+                    _HubControlRow(
+                      title: 'Resolution',
+                      subtitle: '1.5K · Canvas, density and refresh rate',
+                      icon: Icons.grid_view_rounded,
+                      accent: const Color(0xFFFFBE63),
+                      onTap: () => onOpen(PeridotScreen.resolution),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            _HubReveal(
+              duration: 580,
+              child: _HubCategoryCard(
+                title: 'Power & Memory',
+                subtitle: 'Charging and memory management',
+                icon: Icons.battery_saver_rounded,
+                accent: const Color(0xFF41C98A),
+                child: Column(
+                  children: <Widget>[
+                    _HubControlRow(
+                      title: 'Charging',
+                      subtitle: chargingSummary,
+                      icon: Icons.battery_charging_full_rounded,
+                      accent: const Color(0xFF41C98A),
+                      onTap: () => onOpen(PeridotScreen.charging),
+                    ),
+                    const _HubControlDivider(),
+                    _HubControlRow(
+                      title: 'ZRAM & Swap Manager',
+                      subtitle: '$memory · Compression and swap policy',
+                      icon: Icons.storage_rounded,
+                      accent: const Color(0xFF67C2FF),
+                      onTap: () => onOpen(PeridotScreen.zramSwap),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            _HubReveal(
+              duration: 640,
+              child: SurfaceCard(
+                padding: const EdgeInsets.all(11),
+                child: _HubControlRow(
+                  title: 'Diagnostics',
+                  subtitle: 'Sensors and hardware health',
+                  value: snapshot.serviceStatusLabel,
+                  icon: Icons.monitor_heart_rounded,
+                  accent: const Color(0xFF74E6C6),
+                  onTap: () => onOpen(PeridotScreen.diagnostics),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _HubReveal extends StatelessWidget {
+  const _HubReveal({required this.child, this.duration = 340});
+
+  final Widget child;
+  final int duration;
+
+  @override
+  Widget build(BuildContext context) {
+    final moving =
+        PeridotMotionViewportScope.inFlightOf(context) ||
+        !TickerMode.valuesOf(context).enabled;
+    return TweenAnimationBuilder<double>(
+      tween: Tween<double>(begin: moving ? 1 : 0, end: 1),
+      // A sliding page is already being revealed by the finger. Never keep
+      // its content transparent behind a muted first-visit arrival ticker.
+      duration: moving
+          ? Duration.zero
+          : PeridotInteractionSettings.motionDuration(duration),
+      curve: PeridotInteractionSettings.transitionCurve,
+      child: child,
+      builder: (BuildContext context, double value, Widget? child) {
+        return Opacity(
+          opacity: value,
+          child: Transform.translate(
+            offset: Offset(0, (1 - value) * 10),
+            child: child,
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _HubProfileHero extends StatelessWidget {
+  const _HubProfileHero({
+    required this.profile,
+    required this.snapshot,
+    required this.battery,
+    required this.cores,
+    required this.gpu,
+    required this.gpuAccent,
+    required this.onBattery,
+    required this.onCpu,
+    required this.onGpu,
+  });
+  final String profile;
+  final PeridotBackendSnapshot snapshot;
+  final String battery;
+  final String cores;
+  final String gpu;
+  final Color gpuAccent;
+  final VoidCallback onBattery;
+  final VoidCallback onCpu;
+  final VoidCallback onGpu;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return SurfaceCard(
+      accent: colors.primary,
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'HARDWARE CONTROLS',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 1,
+                    color: colors.onSurfaceVariant,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 120),
+                child: _HomeLiveBadge(snapshot: snapshot),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          const HubHeadline(),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: _HubMetric(
+                  label: 'BATTERY',
+                  value: battery,
+                  icon: Icons.battery_5_bar_rounded,
+                  accent: const Color(0xFF41C98A),
+                  onTap: onBattery,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _HubMetric(
+                  label: 'CPU',
+                  value: cores,
+                  icon: Icons.memory_rounded,
+                  accent: const Color(0xFF67C2FF),
+                  onTap: onCpu,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _HubMetric(
+                  label: 'GPU',
+                  value: gpu,
+                  icon: Icons.sports_esports_rounded,
+                  accent: gpuAccent,
+                  onTap: onGpu,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HubMetric extends StatelessWidget {
+  const _HubMetric({
+    required this.label,
+    required this.value,
+    required this.icon,
+    required this.accent,
+    required this.onTap,
+  });
+
+  final String label;
+  final String value;
+  final IconData icon;
+  final Color accent;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme colors = Theme.of(context).colorScheme;
+
+    return PressScale(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 8),
+        decoration: BoxDecoration(
+          color: colors.surface.withValues(alpha: 0.50),
+          borderRadius: BorderRadius.circular(13),
+          border: Border.all(
+            color: PeridotSurfaceLines.inset(colors),
+            width: 0.85,
+          ),
+        ),
+        child: Row(
+          children: <Widget>[
+            Icon(icon, size: 15, color: accent),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(
+                    label,
+                    maxLines: 1,
+                    style: TextStyle(
+                      fontSize: 8,
+                      height: 1,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 0.42,
+                      color: colors.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    value,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 11.5,
+                      height: 1,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _HubCategoryCard extends StatelessWidget {
+  const _HubCategoryCard({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.accent,
+    required this.child,
+  });
+
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final Color accent;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme colors = Theme.of(context).colorScheme;
+
+    return SurfaceCard(
+      padding: const EdgeInsets.all(11),
+      accent: accent,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Padding(
+            padding: const EdgeInsets.fromLTRB(2, 1, 2, 10),
+            child: Row(
+              children: <Widget>[
+                Container(
+                  width: 31,
+                  height: 31,
+                  decoration: BoxDecoration(
+                    color: accent.withValues(alpha: 0.11),
+                    borderRadius: BorderRadius.circular(11),
+                  ),
+                  child: Icon(icon, size: 17, color: accent),
+                ),
+                const SizedBox(width: 9),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Text(
+                        title,
+                        style: const TextStyle(
+                          fontSize: 15.5,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -0.22,
+                        ),
+                      ),
+                      const SizedBox(height: 1),
+                      Text(
+                        subtitle,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 10.5,
+                          color: colors.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          child,
+        ],
+      ),
+    );
+  }
+}
+
+class _HubControlDivider extends StatelessWidget {
+  const _HubControlDivider();
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 52),
+      child: Divider(
+        height: 1,
+        thickness: 0.8,
+        color: PeridotSurfaceLines.divider(Theme.of(context).colorScheme),
+      ),
+    );
+  }
+}
+
+class _HubControlRow extends StatelessWidget {
+  const _HubControlRow({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.accent,
+    required this.onTap,
+    this.value,
+    this.emphasized = false,
+    this.wrapSubtitle = false,
+  });
+
+  final String title;
+  final String subtitle;
+  final String? value;
+  final IconData icon;
+  final Color accent;
+  final VoidCallback onTap;
+  final bool emphasized;
+  final bool wrapSubtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme colors = theme.colorScheme;
+    final bool dark = theme.brightness == Brightness.dark;
+
+    return PressScale(
+      onTap: onTap,
+      child: Container(
+        constraints: const BoxConstraints(minHeight: 62),
+        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 7),
+        decoration: BoxDecoration(
+          gradient: emphasized
+              ? LinearGradient(
+                  begin: Alignment.centerLeft,
+                  end: Alignment.centerRight,
+                  colors: <Color>[
+                    accent.withValues(alpha: dark ? 0.095 : 0.060),
+                    accent.withValues(alpha: 0.012),
+                  ],
+                )
+              : null,
+          borderRadius: BorderRadius.circular(15),
+          border: emphasized
+              ? Border.all(
+                  color: accent.withValues(alpha: dark ? 0.16 : 0.12),
+                  width: 0.7,
+                )
+              : null,
+        ),
+        child: Row(
+          children: <Widget>[
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: <Color>[
+                    accent.withValues(alpha: dark ? 0.18 : 0.13),
+                    accent.withValues(alpha: dark ? 0.08 : 0.055),
+                  ],
+                ),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: accent.withValues(alpha: dark ? 0.24 : 0.18),
+                  width: 0.75,
+                ),
+              ),
+              child: Icon(icon, size: 20, color: accent),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: -0.16,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    maxLines: wrapSubtitle ? null : 1,
+                    overflow: wrapSubtitle
+                        ? TextOverflow.visible
+                        : TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 10.4,
+                      height: 1.12,
+                      color: colors.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (value != null) ...<Widget>[
+              const SizedBox(width: 7),
+              Container(
+                constraints: const BoxConstraints(maxWidth: 78),
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
+                decoration: BoxDecoration(
+                  color: accent.withValues(alpha: dark ? 0.13 : 0.09),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  value!,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 9,
+                    fontWeight: FontWeight.w800,
+                    color: accent,
+                  ),
+                ),
+              ),
+            ],
+            const SizedBox(width: 5),
+            Icon(
+              Icons.chevron_right_rounded,
+              size: 20,
+              color: colors.onSurfaceVariant.withValues(alpha: 0.65),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class SupportScreen extends StatelessWidget {
+  const SupportScreen({super.key});
+
+  void _openLink(int code) {
+    PeridotHaptics.confirm();
+    PeridotBackend.instance.openSupportLink(code);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme colors = Theme.of(context).colorScheme;
+    final bool dark = Theme.of(context).brightness == Brightness.dark;
+
+    return PeridotScrollPage(
+      topPadding: 16,
+      children: <Widget>[
+        const PeridotHeader(
+          title: 'Support',
+          subtitle: 'Community, source and system information',
+        ),
+        const SizedBox(height: 14),
+        // Hero Header Card with Redesigned Flagship OEM Logo
+        SurfaceCard(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            children: <Widget>[
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Align(
+                    alignment: Alignment.topCenter,
+                    child: _PeridotAppEmblem(size: 60, color: colors.primary),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        const Text(
+                          'Peridot Essential',
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: -0.4,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Built-in System Performance Studio',
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w500,
+                            color: colors.onSurfaceVariant,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Wrap(
+                          spacing: 5,
+                          runSpacing: 4,
+                          children: <Widget>[
+                            const PeridotVersionSecret(
+                              version: 'v$peridotVersionName',
+                            ),
+                            const StatusPill(
+                              label: 'Native Service',
+                              accent: Color(0xFF41C98A),
+                            ),
+                            StatusPill(
+                              label: 'Native AOT',
+                              accent: colors.secondary,
+                            ),
+                            const StatusPill(
+                              label: '16KB Page',
+                              accent: Color(0xFF41C98A),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Row(
+                          children: <Widget>[
+                            Icon(
+                              Icons.auto_awesome_rounded,
+                              size: 14,
+                              color: colors.primary,
+                            ),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text.rich(
+                                TextSpan(
+                                  children: <InlineSpan>[
+                                    TextSpan(
+                                      text: 'Codename · ',
+                                      style: TextStyle(
+                                        color: colors.onSurfaceVariant,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                    TextSpan(
+                                      text: peridotReleaseCodename,
+                                      style: TextStyle(
+                                        color: colors.primary,
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  height: 1.4,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          'Psst… try four taps on the version.',
+                          style: TextStyle(
+                            fontSize: 10,
+                            height: 1.4,
+                            color: colors.onSurfaceVariant.withValues(
+                              alpha: 0.7,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 11,
+                  vertical: 8,
+                ),
+                decoration: BoxDecoration(
+                  color: colors.surfaceContainer.withValues(
+                    alpha: dark ? 0.35 : 0.45,
+                  ),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: colors.outline.withValues(alpha: 0.10),
+                  ),
+                ),
+                child: Row(
+                  children: <Widget>[
+                    Icon(Icons.bolt_rounded, size: 16, color: colors.primary),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Engineered exclusively for Snapdragon 8s Gen 4 (MT6899 / peridot)',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: colors.onSurface,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+
+        const SizedBox(height: 16),
+        const SectionLabel('Official Community & Source'),
+        const SizedBox(height: 8),
+
+        // GitHub Card
+        _CommunityCard(
+          title: 'GitHub Repository',
+          subtitle: 'Star, fork, and inspect the open-source code',
+          badge: 'NEESCHAL-3',
+          iconWidget: GithubIcon(color: colors.primary, size: 22),
+          accent: colors.primary,
+          onTap: () => _openLink(0),
+        ),
+        const SizedBox(height: 8),
+
+        // Telegram Card
+        _CommunityCard(
+          title: 'Telegram Community',
+          subtitle: 'Join device discussions, chat & get instant support',
+          badge: '@PocoX7ProNepalChat',
+          iconWidget: const Icon(
+            Icons.send_rounded,
+            size: 20,
+            color: Color(0xFF26A5E4),
+          ),
+          accent: const Color(0xFF26A5E4),
+          onTap: () => _openLink(1),
+        ),
+
+        const SizedBox(height: 16),
+        const SectionLabel('System Integration Architecture'),
+        const SizedBox(height: 8),
+
+        const _DisclaimerCard(),
+
+        const SizedBox(height: 20),
+
+        // Sleek Developer / Community Footer
+        Center(
+          child: Column(
+            children: <Widget>[
+              Wrap(
+                alignment: WrapAlignment.center,
+                children: <Widget>[
+                  Text(
+                    'Crafted for the community by ',
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w500,
+                      color: colors.onSurfaceVariant,
+                    ),
+                  ),
+                  Text(
+                    'NEESCHAL 🇳🇵',
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w800,
+                      color: colors.primary,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 2),
+              Text(
+                'Built-in System Component for Peridot ROMs • Zero Telemetry',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w500,
+                  color: colors.onSurfaceVariant.withValues(alpha: 0.65),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 10),
+      ],
+    );
+  }
+}
+
+class _PeridotAppEmblem extends StatelessWidget {
+  const _PeridotAppEmblem({required this.size, required this.color});
+
+  final double size;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(size * 0.24),
+        boxShadow: <BoxShadow>[
+          BoxShadow(
+            color: const Color(0xFF0066FF).withValues(alpha: 0.28),
+            blurRadius: 16,
+            spreadRadius: -2,
+            offset: const Offset(0, 4),
+          ),
+          const BoxShadow(
+            color: Color(0x33000000),
+            blurRadius: 8,
+            offset: Offset(0, 3),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(size * 0.24),
+        child: Image.asset(
+          'assets/app_icon.png',
+          width: size,
+          height: size,
+          fit: BoxFit.cover,
+        ),
+      ),
+    );
+  }
+}
+
+class _CommunityCard extends StatelessWidget {
+  const _CommunityCard({
+    required this.title,
+    required this.subtitle,
+    required this.badge,
+    required this.iconWidget,
+    required this.accent,
+    required this.onTap,
+  });
+
+  final String title;
+  final String subtitle;
+  final String badge;
+  final Widget iconWidget;
+  final Color accent;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme colors = Theme.of(context).colorScheme;
+
+    return PressScale(
+      onTap: onTap,
+      child: SurfaceCard(
+        padding: const EdgeInsets.fromLTRB(13, 11, 13, 11),
+        child: Row(
+          children: <Widget>[
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: <Color>[
+                    accent.withValues(alpha: 0.18),
+                    accent.withValues(alpha: 0.05),
+                  ],
+                ),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: accent.withValues(alpha: 0.20)),
+              ),
+              alignment: Alignment.center,
+              child: iconWidget,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 14.5,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: -0.2,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Wrap(
+                    children: <Widget>[
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 5.5,
+                          vertical: 1.5,
+                        ),
+                        decoration: BoxDecoration(
+                          color: accent.withValues(alpha: 0.10),
+                          borderRadius: BorderRadius.circular(5),
+                          border: Border.all(
+                            color: accent.withValues(alpha: 0.16),
+                          ),
+                        ),
+                        child: Text(
+                          badge,
+                          style: TextStyle(
+                            fontSize: 9.5,
+                            fontWeight: FontWeight.w700,
+                            color: accent,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 5),
+                  Text(
+                    subtitle,
+                    softWrap: true,
+                    style: TextStyle(
+                      fontSize: 11,
+                      height: 1.4,
+                      color: colors.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Container(
+              width: 28,
+              height: 28,
+              decoration: BoxDecoration(
+                color: accent.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(9),
+              ),
+              child: Icon(Icons.arrow_outward_rounded, size: 14, color: accent),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class ChargingScreen extends StatefulWidget {
+  const ChargingScreen({
+    required this.onBack,
+    this.focusRequest = 0,
+    super.key,
+  });
+  final int focusRequest;
+
+  final VoidCallback onBack;
+
+  @override
+  State<ChargingScreen> createState() => _ChargingScreenState();
+}
+
+class _ChargingScreenState extends State<ChargingScreen> {
+  final GlobalKey _bypassKey = GlobalKey();
+
+  void _focusBypass() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final target = _bypassKey.currentContext;
+      if (mounted && target != null) {
+        Scrollable.ensureVisible(
+          target,
+          alignment: 0.16,
+          duration: Duration.zero,
+        );
+      }
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant ChargingScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.focusRequest != oldWidget.focusRequest) _focusBypass();
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    PeridotBackend.instance.refresh();
+    if (widget.focusRequest > 0) _focusBypass();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<PeridotBackendSnapshot>(
+      stream: PeridotBackend.instance.snapshots,
+      initialData: PeridotBackend.instance.latest,
+      builder:
+          (
+            BuildContext context,
+            AsyncSnapshot<PeridotBackendSnapshot> asyncSnapshot,
+          ) {
+            final PeridotBackendSnapshot snapshot =
+                asyncSnapshot.data ?? PeridotBackend.instance.latest;
+
+            return PeridotScrollPage(
+              children: <Widget>[
+                DetailHeader(title: 'Charging Control', onBack: widget.onBack),
+                const SizedBox(height: 3),
+                Text(
+                  'Peridot-native power ceilings with verified live telemetry',
+                  style: TextStyle(
+                    fontSize: 13.5,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                _ChargingBatteryCard(snapshot: snapshot),
+                const SizedBox(height: 9),
+                KeyedSubtree(
+                  key: _bypassKey,
+                  child: _BypassChargingCard(snapshot: snapshot),
+                ),
+                const SizedBox(height: 9),
+                _ChargingModeCard(snapshot: snapshot),
+              ],
+            );
+          },
+    );
+  }
+}
+
+class _BypassChargingCard extends StatefulWidget {
+  const _BypassChargingCard({required this.snapshot});
+
+  final PeridotBackendSnapshot snapshot;
+
+  @override
+  State<_BypassChargingCard> createState() => _BypassChargingCardState();
+}
+
+class _BypassChargingCardState extends State<_BypassChargingCard> {
+  static const Color accent = Color(0xFF9B7CFF);
+  bool? _pending;
+  int? _thresholdPending;
+  int? _thresholdPreview;
+
+  bool get _directPowerConfirmed => isBypassDirectPowerConfirmed(
+    ready: snapshot.ready,
+    enabled: PeridotBackend.instance.bypassChargingEnabled,
+    kernelActive: PeridotBackend.instance.bypassHardwareActive,
+    usbOnline: snapshot.usbOnline,
+    batteryCurrentA: snapshot.batteryCurrentA,
+  );
+
+  PeridotBackendSnapshot get snapshot => widget.snapshot;
+
+  @override
+  void didUpdateWidget(covariant _BypassChargingCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (_pending != null &&
+        (PeridotBackend.instance.bypassChargingEnabled == _pending ||
+            snapshot.chargingWriteState == -1)) {
+      _pending = null;
+    }
+    if (_thresholdPending != null &&
+        (PeridotBackend.instance.bypassThreshold == _thresholdPending ||
+            snapshot.chargingWriteState == -1)) {
+      _thresholdPending = null;
+    }
+  }
+
+  String _stateLabel(bool enabled) {
+    if (!snapshot.ready) return 'BACKEND UNAVAILABLE';
+    if (!snapshot.serviceEnabled) return 'DISABLED';
+    if (_pending != null) return 'APPLYING';
+    if (!PeridotBackend.instance.bypassChargingSupported) return 'NOT SUPPORTED';
+    if (!enabled) return 'OFF';
+    return switch (PeridotBackend.instance.bypassPhase) {
+      1 => 'CHARGING TO THRESHOLD',
+      2 => 'ARMED',
+      4 when _directPowerConfirmed => 'DIRECT POWER',
+      5 => 'CONTROL UNAVAILABLE',
+      6 => 'BATTERY ASSIST',
+      7 => 'CHARGING DETECTED',
+      _ => 'POWER SETTLING',
+    };
+  }
+
+  String _description(bool enabled) {
+    if (!snapshot.ready) {
+      return 'Connect to the device backend to check kernel bypass support.';
+    }
+    if (!snapshot.serviceEnabled) {
+      return 'Peridot Essential is disabled. Enable it in Settings to use bypass charging.';
+    }
+    if (_pending != null) return 'Applying the kernel bypass setting…';
+    if (!PeridotBackend.instance.bypassChargingSupported) {
+      return 'A compatible kernel power-path bypass node is required. '
+          'input_suspend is not used: stopping charger input alone does not '
+          'provide direct system power.';
+    }
+    if (!enabled) {
+      return 'Uses the supported kernel charge-pause power path. Select a '
+          'battery threshold, or Immediately to pause charging as soon as enabled. '
+          'Works independently of this page and the app.';
+    }
+    if (snapshot.usbOnline == 0) {
+      return 'Bypass is armed. Connect a charger to activate direct system power.';
+    }
+    final int threshold = PeridotBackend.instance.bypassThreshold;
+    if (PeridotBackend.instance.bypassPhase == 1) {
+      return 'OEM charging continues below $threshold%. At $threshold%, Peridot Essential '
+          'requests bypass automatically. Charging resumes only if the level '
+          'falls two percentage points below the threshold.';
+    }
+    if (PeridotBackend.instance.bypassPhase == 5) {
+      return 'The saved choice is still enabled, but kernel control or battery '
+          'telemetry is unavailable. Bypass is not confirmed.';
+    }
+    if (PeridotBackend.instance.bypassPhase == 6) {
+      return 'Charge pause is requested, but the battery is supplying part of '
+          'the load. Check your adapter and cable; direct power is not confirmed.';
+    }
+    if (PeridotBackend.instance.bypassPhase == 7) {
+      return 'Battery current shows charging despite the bypass request. '
+          'Peridot Essential is not reporting this as working bypass.';
+    }
+    if (!_directPowerConfirmed) {
+      return 'The kernel charge-pause request is active. Power negotiation and '
+          'battery-current measurement are settling; opening this page does '
+          'not restart them.';
+    }
+    return 'Kernel bypass is enabled. External power is connected and battery '
+        'current has stayed near zero, consistent with direct system power.';
+  }
+
+  void _setEnabled(bool enabled) {
+    if (_pending != null ||
+        _thresholdPending != null ||
+        snapshot.chargingWriteState == 1 ||
+        !PeridotBackend.instance.bypassChargingSupported) {
+      return;
+    }
+    setState(() => _pending = enabled);
+    PeridotHaptics.toggle(enabled);
+    if (!PeridotBackend.instance.setBypassCharging(enabled)) {
+      setState(() => _pending = null);
+      PeridotHaptics.reject();
+      PeridotBackend.instance.refresh();
+    }
+  }
+
+  void _setThreshold(int threshold) {
+    setState(() => _thresholdPreview = null);
+    if (_thresholdPending != null || !snapshot.controlsAvailable) return;
+    if (threshold == PeridotBackend.instance.bypassThreshold) return;
+    PeridotHaptics.segment();
+    setState(() => _thresholdPending = threshold);
+    if (!PeridotBackend.instance.setBypassThreshold(threshold)) {
+      setState(() => _thresholdPending = null);
+      PeridotHaptics.reject();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme colors = Theme.of(context).colorScheme;
+    final bool supported = PeridotBackend.instance.bypassChargingSupported;
+    final bool enabled = _pending ?? PeridotBackend.instance.bypassChargingEnabled;
+    final bool applying = _pending != null || snapshot.chargingWriteState == 1;
+    final String state = _stateLabel(enabled);
+
+    return SurfaceCard(
+      padding: const EdgeInsets.fromLTRB(14, 14, 10, 14),
+      accent: supported ? accent : colors.onSurfaceVariant,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 220),
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: <Color>[
+                      accent.withValues(alpha: enabled ? 0.30 : 0.14),
+                      accent.withValues(alpha: enabled ? 0.09 : 0.035),
+                    ],
+                  ),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: accent.withValues(alpha: enabled ? 0.42 : 0.18),
+                  ),
+                ),
+                child: Center(
+                  child: TweenAnimationBuilder<double>(
+                    tween: Tween<double>(begin: 0, end: enabled ? 1 : 0),
+                    duration: MediaQuery.disableAnimationsOf(context)
+                        ? Duration.zero
+                        : const Duration(milliseconds: 420),
+                    curve: Curves.easeOutCubic,
+                    builder:
+                        (BuildContext context, double flow, Widget? child) {
+                          return CustomPaint(
+                            size: const Size(32, 32),
+                            painter: _BypassPowerPathPainter(
+                              color: supported
+                                  ? accent
+                                  : colors.onSurfaceVariant,
+                              flow: flow,
+                            ),
+                          );
+                        },
+                  ),
+                ),
+              ),
+              const SizedBox(width: 11),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    const Text(
+                      'Bypass Charging',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    AnimatedContainer(
+                      duration: const Duration(milliseconds: 180),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 7,
+                        vertical: 3,
+                      ),
+                      decoration: BoxDecoration(
+                        color: (enabled ? accent : colors.onSurfaceVariant)
+                            .withValues(alpha: 0.11),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        state,
+                        style: TextStyle(
+                          fontSize: 8.6,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 0.55,
+                          color: enabled ? accent : colors.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Switch.adaptive(
+                value: enabled,
+                onChanged: supported && snapshot.controlsAvailable
+                    ? _setEnabled
+                    : null,
+                activeThumbColor: accent,
+                activeTrackColor: accent.withValues(alpha: 0.34),
+              ),
+            ],
+          ),
+          const SizedBox(height: 11),
+          Row(
+            children: <Widget>[
+              const Expanded(
+                child: Text(
+                  'Start bypass at',
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+                ),
+              ),
+              Text(
+                (_thresholdPreview ??
+                            _thresholdPending ??
+                            PeridotBackend.instance.bypassThreshold) <=
+                        0
+                    ? 'Immediately'
+                    : '${_thresholdPreview ?? _thresholdPending ?? PeridotBackend.instance.bypassThreshold}%',
+                style: const TextStyle(
+                  color: accent,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 12,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          PeridotBypassThresholdSelector(
+            value: _thresholdPending ?? PeridotBackend.instance.bypassThreshold,
+            enabled:
+                supported &&
+                snapshot.controlsAvailable &&
+                !applying &&
+                _thresholdPending == null,
+            onChanged: _setThreshold,
+            onPreview: (threshold) {
+              PeridotHaptics.frequentSegment();
+              setState(() => _thresholdPreview = threshold);
+            },
+            accent: accent,
+          ),
+          const SizedBox(height: 11),
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 10),
+            decoration: BoxDecoration(
+              color: (supported ? accent : colors.onSurfaceVariant).withValues(
+                alpha: 0.065,
+              ),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: (supported ? accent : colors.onSurfaceVariant)
+                    .withValues(alpha: 0.16),
+              ),
+            ),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                minHeight:
+                    MediaQuery.textScalerOf(context).scale(10.7) * 1.35 * 5,
+              ),
+              child: Text(
+                _description(enabled),
+                style: TextStyle(
+                  fontSize: 10.7,
+                  height: 1.35,
+                  color: colors.onSurfaceVariant,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _BypassPowerPathPainter extends CustomPainter {
+  const _BypassPowerPathPainter({required this.color, required this.flow});
+
+  final Color color;
+  final double flow;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.scale(size.width / 32, size.height / 32);
+    final Paint stroke = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.8
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+
+    // Adapter feeds the system rail; the lower battery branch is isolated.
+    canvas.drawLine(const Offset(4, 7), const Offset(4, 10), stroke);
+    canvas.drawLine(const Offset(8, 7), const Offset(8, 10), stroke);
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        const Rect.fromLTWH(2, 10, 8, 7),
+        const Radius.circular(2),
+      ),
+      stroke,
+    );
+    canvas.drawPath(
+      Path()
+        ..moveTo(6, 17)
+        ..lineTo(6, 20)
+        ..quadraticBezierTo(6, 22, 8, 22)
+        ..lineTo(14, 22)
+        ..quadraticBezierTo(16, 22, 16, 20)
+        ..lineTo(16, 13)
+        ..lineTo(21, 13),
+      stroke,
+    );
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        const Rect.fromLTWH(21, 8, 9, 10),
+        const Radius.circular(2),
+      ),
+      stroke,
+    );
+    for (final double x in <double>[24, 27]) {
+      canvas.drawLine(Offset(x, 5.5), Offset(x, 8), stroke);
+      canvas.drawLine(Offset(x, 18), Offset(x, 20.5), stroke);
+    }
+    canvas.drawRect(const Rect.fromLTWH(24, 11, 3, 4), Paint()..color = color);
+    final Paint battery = Paint()
+      ..color = color.withValues(alpha: 0.55 - flow * 0.25)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.4
+      ..strokeCap = StrokeCap.round;
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        const Rect.fromLTWH(20, 25, 10, 5),
+        const Radius.circular(1),
+      ),
+      battery,
+    );
+    canvas.drawLine(
+      const Offset(18.5, 26.5),
+      const Offset(18.5, 28.5),
+      battery,
+    );
+    canvas.drawLine(const Offset(17, 23.5), const Offset(20, 23.5), battery);
+    if (flow > 0) {
+      canvas.drawCircle(Offset(16 + 3 * flow, 13), 2, Paint()..color = color);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_BypassPowerPathPainter oldDelegate) =>
+      oldDelegate.color != color || oldDelegate.flow != flow;
+}
+
+class _ChargingBatteryCard extends StatelessWidget {
+  const _ChargingBatteryCard({required this.snapshot});
+
+  final PeridotBackendSnapshot snapshot;
+
+  static const Color accent = Color(0xFF35C997);
+
+  String _capacity() =>
+      snapshot.batteryCapacity >= 0 ? '${snapshot.batteryCapacity}%' : '—';
+
+  String _temperature() {
+    final double? value = snapshot.batteryTempC;
+    return value == null ? '—' : '${value.toStringAsFixed(1)}°C';
+  }
+
+  String _current() {
+    final double? value = snapshot.batteryCurrentA;
+    return value == null ? '—' : '${value.abs().toStringAsFixed(2)} A';
+  }
+
+  String _wattage() {
+    final int milliwatts = PeridotBackend.instance.chargingLiveMilliwatts;
+    if (snapshot.batteryStatus != 1 || milliwatts < 0) return '—';
+    return '${(milliwatts / 1000).toStringAsFixed(1)} W';
+  }
+
+  String _adapter() {
+    final int selected = snapshot.chargingMode;
+    if (selected > 0) return '$selected W';
+    final int watts = PeridotBackend.instance.chargingAdapterWatts;
+    return watts > 0 ? '$watts W' : 'Detecting';
+  }
+
+  String _adapterLabel() =>
+      snapshot.chargingMode > 0 ? 'Selected Max' : 'Adapter Max';
+
+  String _status() {
+    if (snapshot.controlsAvailable &&
+        PeridotBackend.instance.bypassChargingEnabled &&
+        PeridotBackend.instance.bypassPhase == 4) {
+      return 'Direct power · Battery charging paused';
+    }
+    if (PeridotBackend.instance.bypassChargingEnabled) {
+      switch (PeridotBackend.instance.bypassPhase) {
+        case 1:
+          return 'Charging to ${PeridotBackend.instance.bypassThreshold}%';
+        case 3:
+          return 'Charge pause requested · Power settling';
+        case 5:
+          return 'Bypass control unavailable';
+        case 6:
+          return 'Battery supplementing adapter power';
+        case 7:
+          return 'Charging detected · Bypass not confirmed';
+      }
+    }
+    switch (snapshot.batteryStatus) {
+      case 1:
+        return 'Charging';
+      case 2:
+        return 'Discharging';
+      case 3:
+        return 'Not charging';
+      case 4:
+        return 'Full';
+      case 0:
+        return 'Unknown';
+      default:
+        return 'Unavailable';
+    }
+  }
+
+  String _health() {
+    switch (snapshot.batteryHealth) {
+      case 1:
+        return 'Good health';
+      case 2:
+        return 'Overheat';
+      case 3:
+        return 'Dead';
+      case 4:
+        return 'Over voltage';
+      case 5:
+        return 'Cold';
+      case 0:
+        return 'Unknown';
+      default:
+        return 'Unavailable';
+    }
+  }
+
+  Color _tempColor() {
+    final double? t = snapshot.batteryTempC;
+    if (t == null) return const Color(0xFF67C2FF);
+    if (t >= 44.0) return const Color(0xFFFF453A);
+    if (t >= 38.0) return const Color(0xFFFFB84D);
+    return const Color(0xFF41C98A);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme colors = Theme.of(context).colorScheme;
+    final bool bypassEnabled = PeridotBackend.instance.bypassChargingEnabled;
+    final int bypassPhase = PeridotBackend.instance.bypassPhase;
+    final bool isBypass =
+        snapshot.ready &&
+        snapshot.serviceEnabled &&
+        bypassEnabled &&
+        bypassPhase == 4;
+    final bool isCharging =
+        snapshot.batteryStatus == 1 &&
+        !isBypass &&
+        !(bypassEnabled && <int>{3, 6}.contains(bypassPhase));
+
+    return SurfaceCard(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
+      child: Column(
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color:
+                      (isCharging
+                              ? const Color(0xFF35C997)
+                              : const Color(0xFF4EA8DE))
+                          .withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color:
+                        (isCharging
+                                ? const Color(0xFF35C997)
+                                : const Color(0xFF4EA8DE))
+                            .withValues(alpha: 0.28),
+                  ),
+                ),
+                child: Icon(
+                  isCharging ? Icons.bolt_rounded : Icons.battery_5_bar_rounded,
+                  color: isCharging
+                      ? const Color(0xFF35C997)
+                      : const Color(0xFF4EA8DE),
+                  size: 26,
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 5,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: <Widget>[
+                        Text(
+                          _capacity(),
+                          style: const TextStyle(
+                            fontSize: 26,
+                            height: 1.0,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: -0.5,
+                          ),
+                        ),
+                        if (isCharging || isBypass) ...<Widget>[
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 7,
+                              vertical: 3,
+                            ),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF35C997)
+                                  .withValues(alpha: 0.14),
+                              borderRadius: BorderRadius.circular(99),
+                              border: Border.all(
+                                color: const Color(0xFF35C997)
+                                    .withValues(alpha: 0.35),
+                              ),
+                            ),
+                            child: Text(
+                              isBypass ? 'BYPASS' : 'CHARGING',
+                              style: const TextStyle(
+                                fontSize: 8.8,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: 0.6,
+                                color: Color(0xFF35C997),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '${_status()} · ${_health()}',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: colors.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              _ChargingStatePill(
+                label: snapshot.serviceStatusBadgeLabel,
+                accent: snapshot.controlsAvailable
+                    ? accent
+                    : colors.onSurfaceVariant,
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Divider(height: 1, color: PeridotSurfaceLines.divider(colors)),
+          const SizedBox(height: 12),
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: _ChargingMetric(
+                  label: 'Temperature',
+                  value: _temperature(),
+                  icon: Icons.thermostat_rounded,
+                  accentColor: _tempColor(),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _ChargingMetric(
+                  label: 'Battery Input',
+                  value: _wattage(),
+                  icon: Icons.bolt_rounded,
+                  accentColor: const Color(0xFFFFB84D),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: _ChargingMetric(
+                  label: _adapterLabel(),
+                  value: _adapter(),
+                  icon: Icons.power_rounded,
+                  accentColor: const Color(0xFF67C2FF),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _ChargingMetric(
+                  label: 'Current',
+                  value: _current(),
+                  icon: Icons.speed_rounded,
+                  accentColor: const Color(0xFFB087FF),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ChargingMetric extends StatelessWidget {
+  const _ChargingMetric({
+    required this.label,
+    required this.value,
+    required this.icon,
+    this.accentColor,
+  });
+
+  final String label;
+  final String value;
+  final IconData icon;
+  final Color? accentColor;
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme colors = Theme.of(context).colorScheme;
+    final Color color = accentColor ?? colors.primary;
+
+    return Container(
+      constraints: const BoxConstraints(minHeight: 68),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: colors.surfaceContainer.withValues(alpha: 0.45),
+        borderRadius: BorderRadius.circular(15),
+        border: Border.all(color: PeridotSurfaceLines.inset(colors)),
+      ),
+      child: Row(
+        children: <Widget>[
+          Container(
+            width: 32,
+            height: 32,
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(icon, size: 17, color: color),
+          ),
+          const SizedBox(width: 9),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: <Widget>[
+                Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w600,
+                    color: colors.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  value,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.2,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+Color _chargingProfileAccent(int watts) => switch (watts) {
+  0 => const Color(0xFF67C2FF),
+  25 => const Color(0xFF35C997),
+  33 => const Color(0xFF35C997),
+  65 => const Color(0xFF35C997),
+  85 => const Color(0xFF35C997),
+  90 => const Color(0xFFFFA340),
+  _ => const Color(0xFF35C997),
+};
+
+IconData _chargingProfileIcon(int watts) => switch (watts) {
+  0 => Icons.auto_awesome_rounded,
+  25 => Icons.eco_rounded,
+  33 => Icons.battery_charging_full_rounded,
+  65 => Icons.bolt_rounded,
+  85 => Icons.flash_on_rounded,
+  90 => Icons.offline_bolt_rounded,
+  _ => Icons.bolt_rounded,
+};
+
+String _chargingProfileName(int watts) => switch (watts) {
+  0 => 'OEM Adaptive',
+  25 => 'Cool Daily',
+  33 => 'Balanced Fast',
+  65 => 'Fast Daily',
+  85 => 'Near Maximum',
+  90 => 'HyperCharge',
+  _ => 'Charge Output',
+};
+
+String _chargingProfileDescription(int watts) => switch (watts) {
+  0 => 'ROM-managed charging, taper and battery care',
+  25 => 'Lower-heat everyday charging',
+  33 => 'Balanced speed and temperature',
+  65 => 'Fast daily charging with headroom',
+  85 => 'Near-maximum charging',
+  90 => 'Full software charging ceiling',
+  _ => 'Select a charging profile',
+};
+
+class _ChargingModeCard extends StatefulWidget {
+  const _ChargingModeCard({required this.snapshot});
+
+  final PeridotBackendSnapshot snapshot;
+
+  @override
+  State<_ChargingModeCard> createState() => _ChargingModeCardState();
+}
+
+class _ChargingModeCardState extends State<_ChargingModeCard> {
+  static const Color accent = Color(0xFF35C997);
+  int? _pendingProfile;
+
+  PeridotBackendSnapshot get snapshot => widget.snapshot;
+
+  @override
+  void didUpdateWidget(covariant _ChargingModeCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (_pendingProfile != null &&
+        (snapshot.chargingMode == _pendingProfile ||
+            snapshot.chargingWriteState == -1)) {
+      _pendingProfile = null;
+    }
+  }
+
+  String _detail(int selected) {
+    if (!snapshot.ready) return 'Charging backend unavailable';
+    if (!PeridotBackend.instance.chargingControlSupported) {
+      return 'Peridot Essential FCC control is unavailable on this kernel';
+    }
+    if (PeridotBackend.instance.bypassChargingEnabled) {
+      return 'Disable Bypass Charging to use charging profiles';
+    }
+    if (snapshot.chargingWriteState == 1) {
+      return 'Applying and verifying the selected ceiling…';
+    }
+    if (snapshot.chargingWriteState == -1) {
+      return 'The requested ceiling could not be verified';
+    }
+    return selected == 0
+        ? 'ROM and battery controller manage charging'
+        : 'Peridot Essential fast-charge path · $selected W maximum';
+  }
+
+  void _select(int profile) {
+    final bool allowed =
+        snapshot.controlsAvailable &&
+        PeridotBackend.instance.chargingControlSupported &&
+        !PeridotBackend.instance.bypassChargingEnabled &&
+        snapshot.chargingWriteState != 1;
+    if (!allowed || profile == (_pendingProfile ?? snapshot.chargingMode)) {
+      return;
+    }
+    PeridotHaptics.segment();
+    setState(() => _pendingProfile = profile);
+    if (!PeridotBackend.instance.setChargingProfile(profile)) {
+      setState(() => _pendingProfile = null);
+      PeridotHaptics.reject();
+      PeridotBackend.instance.refresh();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme colors = Theme.of(context).colorScheme;
+    final int selected = _pendingProfile ?? snapshot.chargingMode;
+    final Color profileAccent = _chargingProfileAccent(selected);
+    final IconData profileIcon = _chargingProfileIcon(selected);
+    final bool enabled =
+        snapshot.controlsAvailable &&
+        PeridotBackend.instance.chargingControlSupported &&
+        !PeridotBackend.instance.bypassChargingEnabled &&
+        snapshot.chargingWriteState != 1;
+
+    return SurfaceCard(
+      padding: const EdgeInsets.fromLTRB(14, 14, 14, 15),
+      accent: profileAccent,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: <Color>[
+                      profileAccent.withValues(alpha: 0.22),
+                      profileAccent.withValues(alpha: 0.07),
+                    ],
+                  ),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: profileAccent.withValues(alpha: 0.28),
+                  ),
+                ),
+                child: Center(
+                  child: Icon(profileIcon, size: 24, color: profileAccent),
+                ),
+              ),
+              const SizedBox(width: 11),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      selected == 0
+                          ? 'OEM Adaptive'
+                          : selected == 90
+                          ? '90 W HyperCharge'
+                          : '$selected W Charge Limit',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                        color: colors.onSurface,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      _detail(selected),
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        color: colors.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (snapshot.chargingWriteState == 1)
+                SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: profileAccent,
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 13),
+          if (PeridotBackend.instance.bypassChargingEnabled) ...<Widget>[
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 10),
+              decoration: BoxDecoration(
+                color: const Color(0xFF9B7CFF).withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: const Color(0xFF9B7CFF).withValues(alpha: 0.20),
+                ),
+              ),
+              child: Row(
+                children: <Widget>[
+                  const Icon(
+                    Icons.lock_rounded,
+                    size: 16,
+                    color: Color(0xFF9B7CFF),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Charging profiles are unavailable while Bypass Charging is enabled. Disable it to change or use a charging profile.',
+                      style: TextStyle(
+                        fontSize: 10.5,
+                        height: 1.3,
+                        color: colors.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 11),
+          ],
+          AnimatedOpacity(
+            duration: const Duration(milliseconds: 180),
+            opacity: enabled ? 1 : 0.46,
+            child: _ChargingAdaptiveTile(
+              selected: selected == 0,
+              enabled: enabled,
+              onTap: () => _select(0),
+            ),
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: <Widget>[
+              Text(
+                'FIXED POWER PROFILES',
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0.55,
+                  color: colors.onSurfaceVariant,
+                ),
+              ),
+              const Spacer(),
+              Text(
+                '5 LEVELS',
+                style: TextStyle(
+                  fontSize: 9,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.45,
+                  color: colors.onSurfaceVariant.withValues(alpha: 0.72),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          AnimatedOpacity(
+            duration: const Duration(milliseconds: 180),
+            opacity: enabled ? 1 : 0.46,
+            child: _ChargingPowerSpectrum(
+              selected: selected,
+              enabled: enabled,
+              onSelect: _select,
+            ),
+          ),
+          const SizedBox(height: 10),
+          AnimatedOpacity(
+            duration: const Duration(milliseconds: 180),
+            opacity: enabled ? 1 : 0.46,
+            child: _ChargingProfileDetail(
+              watts: selected,
+              applying: snapshot.chargingWriteState == 1,
+            ),
+          ),
+          const SizedBox(height: 11),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 10),
+            decoration: BoxDecoration(
+              color: accent.withValues(alpha: 0.07),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: accent.withValues(alpha: 0.18)),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                const Padding(
+                  padding: EdgeInsets.only(top: 1),
+                  child: Icon(
+                    Icons.info_outline_rounded,
+                    size: 15,
+                    color: accent,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'The selected value is a maximum. Live power follows adapter capability, battery level, temperature and charger-IC protection.',
+                    style: TextStyle(
+                      fontSize: 10.5,
+                      height: 1.35,
+                      color: colors.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ChargingAdaptiveTile extends StatelessWidget {
+  const _ChargingAdaptiveTile({
+    required this.selected,
+    required this.enabled,
+    required this.onTap,
+  });
+
+  final bool selected;
+  final bool enabled;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    const Color accent = Color(0xFF67C2FF);
+    final ColorScheme colors = Theme.of(context).colorScheme;
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 190),
+      curve: Curves.easeOutCubic,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: <Color>[
+            accent.withValues(alpha: selected ? 0.18 : 0.085),
+            colors.surfaceContainer.withValues(alpha: 0.46),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: selected
+              ? accent.withValues(alpha: 0.68)
+              : colors.outline.withValues(alpha: 0.22),
+          width: selected ? 1.3 : 0.9,
+        ),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: enabled ? onTap : null,
+          borderRadius: BorderRadius.circular(16),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+            child: Row(
+              children: <Widget>[
+                Container(
+                  width: 42,
+                  height: 42,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: <Color>[
+                        accent.withValues(alpha: 0.28),
+                        accent.withValues(alpha: 0.09),
+                      ],
+                    ),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: accent.withValues(alpha: 0.30)),
+                  ),
+                  child: const Icon(
+                    Icons.auto_awesome_rounded,
+                    color: accent,
+                    size: 22,
+                  ),
+                ),
+                const SizedBox(width: 11),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Row(
+                        children: <Widget>[
+                          Text(
+                            'OEM Adaptive',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w800,
+                              color: selected ? accent : colors.onSurface,
+                            ),
+                          ),
+                          const SizedBox(width: 7),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: accent.withValues(alpha: 0.11),
+                              borderRadius: BorderRadius.circular(7),
+                            ),
+                            child: const Text(
+                              'AUTO',
+                              style: TextStyle(
+                                fontSize: 8,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: 0.45,
+                                color: accent,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        _chargingProfileDescription(0),
+                        style: TextStyle(
+                          fontSize: 10.2,
+                          height: 1.2,
+                          color: colors.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 180),
+                  width: 21,
+                  height: 21,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: selected ? accent : Colors.transparent,
+                    border: Border.all(
+                      color: selected
+                          ? accent
+                          : colors.outline.withValues(alpha: 0.55),
+                      width: 1.5,
+                    ),
+                  ),
+                  child: selected
+                      ? const Icon(
+                          Icons.check_rounded,
+                          size: 14,
+                          color: Colors.white,
+                        )
+                      : null,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ChargingPowerSpectrum extends StatelessWidget {
+  const _ChargingPowerSpectrum({
+    required this.selected,
+    required this.enabled,
+    required this.onSelect,
+  });
+
+  final int selected;
+  final bool enabled;
+  final ValueChanged<int> onSelect;
+
+  static const List<int> _profiles = <int>[25, 33, 65, 85, 90];
+
+  Widget _profileTile(
+    BuildContext context, {
+    required int watts,
+    required bool active,
+  }) {
+    final ColorScheme colors = Theme.of(context).colorScheme;
+    final Color accent = _chargingProfileAccent(watts);
+
+    return PressScale(
+      onTap: enabled ? () => onSelect(watts) : null,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 190),
+        curve: Curves.easeOutCubic,
+        height: 76,
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 9),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: <Color>[
+              active
+                  ? accent.withValues(alpha: 0.18)
+                  : colors.surface.withValues(alpha: 0.70),
+              active
+                  ? accent.withValues(alpha: 0.07)
+                  : colors.surfaceContainer.withValues(alpha: 0.34),
+            ],
+          ),
+          borderRadius: BorderRadius.circular(13),
+          border: Border.all(
+            color: active
+                ? accent.withValues(alpha: 0.72)
+                : colors.outline.withValues(alpha: 0.20),
+            width: active ? 1.25 : 0.8,
+          ),
+          boxShadow: active
+              ? <BoxShadow>[
+                  BoxShadow(
+                    color: accent.withValues(alpha: 0.16),
+                    blurRadius: 14,
+                    spreadRadius: -5,
+                  ),
+                ]
+              : null,
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: <Widget>[
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: <Widget>[
+                Icon(
+                  _chargingProfileIcon(watts),
+                  size: 17,
+                  color: active
+                      ? accent
+                      : colors.onSurfaceVariant.withValues(alpha: 0.78),
+                ),
+                const SizedBox(width: 5),
+                Text(
+                  '$watts W',
+                  style: TextStyle(
+                    fontSize: 13.2,
+                    height: 1,
+                    fontWeight: FontWeight.w900,
+                    color: active ? accent : colors.onSurface,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 7),
+            Text(
+              _chargingProfileName(watts),
+              textAlign: TextAlign.center,
+              maxLines: 2,
+              style: TextStyle(
+                fontSize: 9.4,
+                height: 1.08,
+                fontWeight: active ? FontWeight.w800 : FontWeight.w600,
+                color: active ? accent : colors.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme colors = Theme.of(context).colorScheme;
+
+    return Container(
+      padding: const EdgeInsets.all(7),
+      decoration: BoxDecoration(
+        color: colors.surfaceContainer.withValues(alpha: 0.38),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: PeridotSurfaceLines.inset(colors)),
+      ),
+      child: Column(
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              for (final int watts in _profiles.take(3)) ...<Widget>[
+                Expanded(
+                  child: _profileTile(
+                    context,
+                    watts: watts,
+                    active: selected == watts,
+                  ),
+                ),
+                if (watts != _profiles[2]) const SizedBox(width: 6),
+              ],
+            ],
+          ),
+          const SizedBox(height: 6),
+          Row(
+            children: <Widget>[
+              for (final int watts in _profiles.skip(3)) ...<Widget>[
+                Expanded(
+                  child: _profileTile(
+                    context,
+                    watts: watts,
+                    active: selected == watts,
+                  ),
+                ),
+                if (watts != _profiles.last) const SizedBox(width: 6),
+              ],
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ChargingProfileDetail extends StatelessWidget {
+  const _ChargingProfileDetail({required this.watts, required this.applying});
+
+  final int watts;
+  final bool applying;
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme colors = Theme.of(context).colorScheme;
+    final Color accent = _chargingProfileAccent(watts);
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOutCubic,
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: <Color>[
+            accent.withValues(alpha: 0.15),
+            colors.surfaceContainer.withValues(alpha: 0.40),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: accent.withValues(alpha: 0.28)),
+      ),
+      child: Row(
+        children: <Widget>[
+          Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              color: accent.withValues(alpha: 0.14),
+              borderRadius: BorderRadius.circular(13),
+            ),
+            child: Icon(
+              applying ? Icons.sync_rounded : _chargingProfileIcon(watts),
+              size: 20,
+              color: accent,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(
+                  applying ? 'Applying…' : _chargingProfileName(watts),
+                  style: TextStyle(
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w800,
+                    color: colors.onSurface,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  _chargingProfileDescription(watts),
+                  style: TextStyle(
+                    fontSize: 10.2,
+                    height: 1.2,
+                    color: colors.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+            decoration: BoxDecoration(
+              color: accent.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(9),
+              border: Border.all(color: accent.withValues(alpha: 0.22)),
+            ),
+            child: Text(
+              watts == 0 ? 'AUTO' : '$watts W MAX',
+              style: TextStyle(
+                fontSize: 8.5,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 0.35,
+                color: accent,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ChargingStatePill extends StatelessWidget {
+  const _ChargingStatePill({required this.label, required this.accent});
+
+  final String label;
+  final Color accent;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      decoration: BoxDecoration(
+        color: accent.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: accent.withValues(alpha: 0.18)),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: accent,
+          fontSize: 9.5,
+          fontWeight: FontWeight.w800,
+          letterSpacing: 0.5,
+        ),
+      ),
+    );
+  }
+}
+
+class TouchBoostScreen extends StatefulWidget {
+  const TouchBoostScreen({required this.onBack, super.key});
+
+  final VoidCallback onBack;
+
+  @override
+  State<TouchBoostScreen> createState() => _TouchBoostScreenState();
+}
+
+class _TouchBoostScreenState extends State<TouchBoostScreen> {
+  int? _pendingProfile;
+  Timer? _pendingTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    PeridotBackend.instance.refresh();
+  }
+
+  @override
+  void dispose() {
+    _pendingTimer?.cancel();
+    super.dispose();
+  }
+
+  bool _selectProfile(int profile) {
+    final bool accepted = PeridotBackend.instance.setTouchProfile(profile);
+    if (!accepted) {
+      return false;
+    }
+
+    setState(() => _pendingProfile = profile);
+    _pendingTimer?.cancel();
+    _pendingTimer = Timer(const Duration(milliseconds: 3400), () {
+      if (!mounted) return;
+      setState(() => _pendingProfile = null);
+      PeridotBackend.instance.refresh();
+    });
+    return true;
+  }
+
+  String _profileTitle(int profile) => switch (profile) {
+    1 => '250 Hz Mode',
+    2 => '480 Hz · Pending',
+    _ => 'OEM Control',
+  };
+
+  String _profileRate(int profile) => switch (profile) {
+    1 => 'Xiaomi game mode · approximately 250 Hz observed',
+    2 => 'Pending driver and firmware validation',
+    _ => 'Xiaomi game mode off · approximately 125 Hz observed',
+  };
+
+  Color _profileAccent(int profile) => switch (profile) {
+    1 => const Color(0xFFFFB84D),
+    2 => const Color(0xFFFF6B57),
+    _ => const Color(0xFFFFB84D),
+  };
+
+  IconData _profileIcon(int profile) => switch (profile) {
+    1 => Icons.sports_esports_rounded,
+    2 => Icons.speed_rounded,
+    _ => Icons.auto_awesome_rounded,
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    return _BackendSnapshotBuilder(
+      builder: (PeridotBackendSnapshot snapshot) {
+        final PeridotBackend backend = PeridotBackend.instance;
+        final int savedProfile =
+            (snapshot.touchState == 1)
+            ? snapshot.touchState
+            : 0;
+        final int activeProfile = _pendingProfile ?? savedProfile;
+        final Color accent = _profileAccent(activeProfile);
+        final int touchAck = backend.extendedValue(29);
+        final int panelCode = backend.extendedValue(62);
+        final int controlPath = backend.extendedValue(63);
+        final String panel = switch (panelCode) {
+          1 => 'Goodix GT9916',
+          2 => 'FocalTech',
+          _ => 'Panel auto-detect',
+        };
+        final String engine = switch (controlPath) {
+          1 => 'Vendor HAL',
+          2 => 'Direct driver fallback',
+          3 => 'Peridot Essential 1 ms output scheduler',
+          _ => snapshot.touchHal == 1 ? 'Vendor HAL ready' : 'Unavailable',
+        };
+        final bool applying =
+            _pendingProfile != null && savedProfile != _pendingProfile;
+        final bool oemManaged = activeProfile == 0 && !applying;
+        final bool controlsEnabled =
+            snapshot.controlsAvailable &&
+            snapshot.touchHal == 1 &&
+            !snapshot.busy;
+
+        return PeridotScrollPage(
+          children: <Widget>[
+            DetailHeader(title: 'Touch Response', onBack: widget.onBack),
+            const SizedBox(height: 4),
+            Text(
+              'Choose OEM (125 Hz observed) or game mode (250 Hz observed). The 480 Hz option is pending adaptation.',
+              style: TextStyle(
+                fontSize: 13.5,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 10),
+            HeroCard(
+              icon: _profileIcon(activeProfile),
+              accent: accent,
+              title: _profileTitle(activeProfile),
+              subtitle: snapshot.touchHal == 1
+                  ? '${_profileRate(activeProfile)} · $panel · $engine'
+                  : 'Peridot Essential touch engine unavailable on this vendor stack',
+            ),
+            const SizedBox(height: 12),
+            _TouchProfileGrid(
+              selectedProfile: activeProfile,
+              enabled: controlsEnabled,
+              onSelected: _selectProfile,
+            ),
+            const SizedBox(height: 12),
+            SurfaceCard(
+              accent: accent,
+              child: Row(
+                children: <Widget>[
+                  IconTile(
+                    icon: oemManaged
+                        ? Icons.auto_awesome_rounded
+                        : !applying && touchAck == 1
+                        ? Icons.verified_rounded
+                        : Icons.sync_rounded,
+                    accent: oemManaged
+                        ? Theme.of(context).colorScheme.primary
+                        : !applying && touchAck == 1
+                        ? const Color(0xFF41C98A)
+                        : const Color(0xFFFFB84D),
+                    size: 44,
+                  ),
+                  const SizedBox(width: 11),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        Text(
+                          oemManaged
+                              ? 'OEM-managed touch'
+                              : !applying && touchAck == 1
+                              ? 'Profile persisted'
+                              : 'Applying touch pipeline',
+                          style: const TextStyle(
+                            fontSize: 14.5,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          oemManaged
+                              ? 'Game mode is off. Approximately 125 Hz was observed on this device.'
+                              : !applying && touchAck == 1
+                              ? 'Game-mode readback confirmed; actual sampling rate is not measured here'
+                              : 'Waiting for the panel HAL to confirm every required mode',
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            height: 1.25,
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            const SurfaceCard(
+              child: _InfoBlock(
+                title: 'Touch rate status',
+                text: '125 and 250 Hz are tester observations on this device, not a live rate measurement. The active control changes Xiaomi game mode. 480 Hz remains unavailable until its control path is validated.',
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _TouchProfileGrid extends StatelessWidget {
+  const _TouchProfileGrid({
+    required this.selectedProfile,
+    required this.enabled,
+    required this.onSelected,
+  });
+
+  final int selectedProfile;
+  final bool enabled;
+  final bool Function(int) onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Text(
+          'TOUCH MODES',
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 0.65,
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(height: 9),
+        _TouchProfileTile(
+          profile: 0,
+          title: 'OEM Control',
+          rate: '125 Hz observed',
+          detail: 'Default · Game mode off',
+          icon: Icons.auto_awesome_rounded,
+          accent: Theme.of(context).colorScheme.primary,
+          selected: selectedProfile == 0,
+          enabled: enabled,
+          onSelected: onSelected,
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: <Widget>[
+            Expanded(
+              child: _TouchProfileTile(
+                profile: 1,
+                title: '250 Hz',
+                rate: '250 Hz observed',
+                detail: 'Xiaomi game mode',
+                icon: Icons.sports_esports_rounded,
+                accent: const Color(0xFFFFB84D),
+                selected: selectedProfile == 1,
+                enabled: enabled,
+                onSelected: onSelected,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _TouchProfileTile(
+                profile: 2,
+                title: '480 Hz',
+                rate: 'Pending',
+                detail: 'Not available yet',
+                icon: Icons.speed_rounded,
+                accent: const Color(0xFFFF6B57),
+                selected: false,
+                enabled: false,
+                onSelected: onSelected,
+              ),
+            ),
+          ],
+        ),
+
+      ],
+    );
+  }
+}
+
+class _TouchProfileTile extends StatelessWidget {
+  const _TouchProfileTile({
+    required this.profile,
+    required this.title,
+    required this.rate,
+    required this.detail,
+    required this.icon,
+    required this.accent,
+    required this.selected,
+    required this.enabled,
+    required this.onSelected,
+  });
+
+  final int profile;
+  final String title;
+  final String rate;
+  final String detail;
+  final IconData icon;
+  final Color accent;
+  final bool selected;
+  final bool enabled;
+  final bool Function(int) onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final bool dark = Theme.of(context).brightness == Brightness.dark;
+    final ColorScheme colors = Theme.of(context).colorScheme;
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: enabled && !selected
+            ? () {
+                final bool accepted = onSelected(profile);
+                if (accepted) {
+                  PeridotHaptics.segment();
+                } else {
+                  PeridotHaptics.reject();
+                }
+              }
+            : null,
+        borderRadius: BorderRadius.circular(18),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 220),
+          padding: const EdgeInsets.all(13),
+          constraints: const BoxConstraints(minHeight: 132),
+          decoration: BoxDecoration(
+            color: selected
+                ? accent.withValues(alpha: dark ? 0.15 : 0.10)
+                : (dark ? const Color(0xFF151A24) : const Color(0xFFF4F7FA)),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(
+              color: selected
+                  ? accent.withValues(alpha: 0.88)
+                  : colors.outline.withValues(alpha: 0.38),
+              width: selected ? 1.6 : 1.0,
+            ),
+            boxShadow: selected
+                ? <BoxShadow>[
+                    BoxShadow(
+                      color: accent.withValues(alpha: 0.10),
+                      blurRadius: 16,
+                      spreadRadius: -4,
+                    ),
+                  ]
+                : const <BoxShadow>[],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: <Widget>[
+                  Container(
+                    width: 34,
+                    height: 34,
+                    decoration: BoxDecoration(
+                      color: accent.withValues(alpha: selected ? 0.20 : 0.10),
+                      borderRadius: BorderRadius.circular(11),
+                    ),
+                    child: Icon(icon, size: 19, color: accent),
+                  ),
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 220),
+                    width: 20,
+                    height: 20,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: selected ? accent : colors.onSurfaceVariant,
+                        width: selected ? 5.5 : 2,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 11),
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 13.2,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 3),
+              Text(
+                rate,
+                style: TextStyle(
+                  fontSize: 11.2,
+                  fontWeight: FontWeight.w700,
+                  color: selected ? accent : colors.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                detail,
+                style: TextStyle(
+                  fontSize: 10.4,
+                  color: colors.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class PeridotNestedBackController {
+  const PeridotNestedBackController._();
+
+  static Object? _owner;
+  static bool Function()? _handler;
+  static bool Function()? _canPreview;
+  static bool get canPreview => _canPreview?.call() ?? false;
+
+  static void attach(
+    Object owner,
+    bool Function() handler, {
+    bool Function()? canPreview,
+  }) {
+    _owner = owner;
+    _handler = handler;
+    _canPreview = canPreview;
+  }
+
+  static void detach(Object owner) {
+    if (!identical(_owner, owner)) {
+      return;
+    }
+
+    _owner = null;
+    _handler = null;
+    _canPreview = null;
+  }
+
+  static bool handleBack() {
+    final bool Function()? handler = _handler;
+
+    if (handler == null) {
+      return false;
+    }
+
+    return handler();
+  }
+}
+
+class DisplayStudioScreen extends StatefulWidget {
+  const DisplayStudioScreen({required this.onBack, super.key});
+
+  final VoidCallback onBack;
+
+  @override
+  State<DisplayStudioScreen> createState() => _DisplayStudioScreenState();
+}
+
+class _DisplayStudioScreenState extends State<DisplayStudioScreen> {
+  bool _showColourModes = false;
+  bool _colourTransitionForward = true;
+
+  @override
+  void initState() {
+    super.initState();
+
+    PeridotNestedBackController.attach(
+      this,
+      _consumeNestedBack,
+      canPreview: () => _showColourModes,
+    );
+
+    PeridotBackend.instance.refresh();
+  }
+
+  @override
+  void dispose() {
+    PeridotNestedBackController.detach(this);
+    super.dispose();
+  }
+
+  bool _consumeNestedBack() {
+    if (!_showColourModes) {
+      return false;
+    }
+
+    _closeColourModes();
+    return true;
+  }
+
+  void _openColourModes() {
+    if (_showColourModes) {
+      return;
+    }
+
+    setState(() {
+      _colourTransitionForward = true;
+      _showColourModes = true;
+    });
+  }
+
+  void _closeColourModes() {
+    if (!_showColourModes) {
+      return;
+    }
+
+    PeridotHaptics.back();
+
+    setState(() {
+      _colourTransitionForward = false;
+      _showColourModes = false;
+    });
+  }
+
+  Widget _buildColourModes(
+    BuildContext context,
+    PeridotBackendSnapshot snapshot,
+    PeridotBackend backend,
+    int gamut,
+    List<int> expert,
+    bool expertEnabled,
+  ) {
+    final ColorScheme colors = Theme.of(context).colorScheme;
+
+    final Color accent = colors.primary;
+    final bool expertCalibrationEnabled =
+        expertEnabled && snapshot.displayColor == 0;
+
+    return PeridotScrollPage(
+      children: <Widget>[
+        DetailHeader(title: 'Colour modes', onBack: _closeColourModes),
+        const SizedBox(height: 4),
+        Text(
+          'Adjust color temperature, color gamut, and RGB channels',
+          style: TextStyle(fontSize: 13.5, color: colors.onSurfaceVariant),
+        ),
+        const SizedBox(height: 10),
+
+        _ChoiceCard(
+          title: 'Display colour',
+          subtitle: 'ROM-managed by default · Optional colour override',
+          icon: Icons.color_lens_rounded,
+          accent: accent,
+          selectedCode: snapshot.displayColor,
+          options: const <_ChoiceOption>[
+            _ChoiceOption(-1, 'OEM Control'),
+            _ChoiceOption(0, 'Original PRO'),
+            _ChoiceOption(1, 'Vivid'),
+            _ChoiceOption(2, 'Saturated'),
+          ],
+          enabled: expertEnabled,
+          onSelected: backend.setDisplayColor,
+        ),
+        const SizedBox(height: 9),
+
+        _ChoiceCard(
+          title: 'Colour temperature',
+          subtitle: 'ROM-managed by default · Optional temperature override',
+          icon: Icons.thermostat_rounded,
+          accent: const Color(0xFFFFB84D),
+          selectedCode: snapshot.displayTemp,
+          options: const <_ChoiceOption>[
+            _ChoiceOption(-1, 'OEM Control'),
+            _ChoiceOption(1, 'Warm'),
+            _ChoiceOption(2, 'Normal'),
+            _ChoiceOption(3, 'Cold'),
+          ],
+          enabled: expertEnabled,
+          onSelected: backend.setDisplayTemperature,
+        ),
+        const SizedBox(height: 9),
+        const SurfaceCard(
+          child: _InfoBlock(
+            title: 'ROM ownership',
+            text: 'OEM Control stops Peridot Essential from applying this setting at boot or wake. Saved overrides restore automatically. Returning to OEM does not guess your ROM’s colour profile: the current appearance can remain until your ROM reapplies its display settings.',
+          ),
+        ),
+        const SizedBox(height: 9),
+
+        _ChoiceCard(
+          title: 'Expert gamut',
+          subtitle: snapshot.displayColor == 0
+              ? 'Original, Display P3 or sRGB'
+              : 'Select Original PRO to customize color space',
+          icon: Icons.tonality_rounded,
+          accent: const Color(0xFF56D8C7),
+          selectedCode: gamut,
+          options: const <_ChoiceOption>[
+            _ChoiceOption(1, 'Original'),
+            _ChoiceOption(2, 'Display P3'),
+            _ChoiceOption(3, 'sRGB'),
+          ],
+          enabled: expertCalibrationEnabled,
+          onSelected: backend.setExpertGamut,
+        ),
+        const SizedBox(height: 9),
+
+        SurfaceCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Row(
+                children: <Widget>[
+                  const Text(
+                    'Live colour swatch',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800),
+                  ),
+                  const Spacer(),
+                  Builder(
+                    builder: (BuildContext context) {
+                      final int r = expert[0] >= 0
+                          ? expert[0].clamp(0, 255)
+                          : 255;
+                      final int g = expert[1] >= 0
+                          ? expert[1].clamp(0, 255)
+                          : 255;
+                      final int b = expert[2] >= 0
+                          ? expert[2].clamp(0, 255)
+                          : 255;
+                      return Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 3,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Color.fromRGBO(r, g, b, 0.18),
+                          borderRadius: BorderRadius.circular(99),
+                          border: Border.all(
+                            color: Color.fromRGBO(r, g, b, 0.6),
+                          ),
+                        ),
+                        child: Text(
+                          expert[0] >= 0
+                              ? 'RGB($r, $g, $b)'
+                              : 'DEFAULT (255, 255, 255)',
+                          style: const TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w800,
+                            fontFamily: 'monospace',
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Builder(
+                builder: (BuildContext context) {
+                  final int r = expert[0] >= 0 ? expert[0].clamp(0, 255) : 255;
+                  final int g = expert[1] >= 0 ? expert[1].clamp(0, 255) : 255;
+                  final int b = expert[2] >= 0 ? expert[2].clamp(0, 255) : 255;
+                  return AnimatedContainer(
+                    duration: const Duration(milliseconds: 100),
+                    height: 46,
+                    decoration: BoxDecoration(
+                      color: Color.fromRGBO(r, g, b, 1.0),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.25),
+                        width: 1.5,
+                      ),
+                      boxShadow: <BoxShadow>[
+                        BoxShadow(
+                          color: Color.fromRGBO(r, g, b, 0.4),
+                          blurRadius: 16,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 9),
+
+        SurfaceCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              const Text(
+                'RGB channels',
+                style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                'Live expert channel calibration',
+                style: TextStyle(
+                  fontSize: 11.2,
+                  color: colors.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 6),
+
+              _ExpertSliderRow(
+                title: 'R',
+                value: expert[0],
+                min: 50,
+                max: 255,
+                defaultValue: 255,
+                activeColor: const Color(0xFFFF3B30),
+                enabled: expertCalibrationEnabled,
+                onChanged: (int value) => backend.setExpertChannel(1, value),
+              ),
+              const Divider(height: 8),
+
+              _ExpertSliderRow(
+                title: 'G',
+                value: expert[1],
+                min: 50,
+                max: 255,
+                defaultValue: 255,
+                activeColor: const Color(0xFF34C759),
+                enabled: expertCalibrationEnabled,
+                onChanged: (int value) => backend.setExpertChannel(2, value),
+              ),
+              const Divider(height: 8),
+
+              _ExpertSliderRow(
+                title: 'B',
+                value: expert[2],
+                min: 50,
+                max: 255,
+                defaultValue: 255,
+                activeColor: const Color(0xFF007AFF),
+                enabled: expertCalibrationEnabled,
+                onChanged: (int value) => backend.setExpertChannel(3, value),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 9),
+
+        SurfaceCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              const Text(
+                'HSV & tone',
+                style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                'Live colour and tone shaping',
+                style: TextStyle(
+                  fontSize: 11.2,
+                  color: colors.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 6),
+
+              _ExpertSliderRow(
+                title: 'Hue',
+                value: expert[3],
+                min: -180,
+                max: 180,
+                defaultValue: 0,
+                activeColor: const Color(0xFFFF9F0A),
+                enabled: expertCalibrationEnabled,
+                onChanged: (int value) => backend.setExpertChannel(4, value),
+              ),
+              const Divider(height: 8),
+
+              _ExpertSliderRow(
+                title: 'Saturation',
+                value: expert[4],
+                min: -50,
+                max: 50,
+                defaultValue: 0,
+                activeColor: const Color(0xFFBF5AF2),
+                enabled: expertCalibrationEnabled,
+                onChanged: (int value) => backend.setExpertChannel(5, value),
+              ),
+              const Divider(height: 8),
+
+              _ExpertSliderRow(
+                title: 'Value',
+                value: expert[5],
+                min: -255,
+                max: 255,
+                defaultValue: 0,
+                activeColor: const Color(0xFF64D2FF),
+                enabled: expertCalibrationEnabled,
+                onChanged: (int value) => backend.setExpertChannel(6, value),
+              ),
+              const Divider(height: 8),
+
+              _ExpertSliderRow(
+                title: 'Contrast',
+                value: expert[6],
+                min: -100,
+                max: 100,
+                defaultValue: 50,
+                activeColor: const Color(0xFFFFD60A),
+                enabled: expertCalibrationEnabled,
+                onChanged: (int value) => backend.setExpertChannel(7, value),
+              ),
+              const Divider(height: 8),
+
+              _ExpertSliderRow(
+                title: 'Gamma',
+                value: expert[7],
+                min: 170,
+                max: 270,
+                defaultValue: 262,
+                activeColor: const Color(0xFF30D158),
+                enabled: expertCalibrationEnabled,
+                onChanged: (int value) => backend.setExpertChannel(8, value),
+              ),
+              const SizedBox(height: 5),
+
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.tonalIcon(
+                  onPressed: expertCalibrationEnabled
+                      ? () {
+                          if (backend.resetExpertDisplay()) {
+                            PeridotHaptics.confirm();
+                          } else {
+                            PeridotHaptics.reject();
+                          }
+                        }
+                      : null,
+                  icon: const Icon(Icons.restart_alt_rounded),
+                  label: const Text('Restore expert defaults'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDisplayStudioRoot(
+    BuildContext context,
+    PeridotBackendSnapshot snapshot,
+    PeridotBackend backend,
+    bool expertEnabled,
+  ) {
+    final ColorScheme colors = Theme.of(context).colorScheme;
+
+    final Color accent = colors.primary;
+
+    return PeridotScrollPage(
+      children: <Widget>[
+        DetailHeader(title: 'Display Studio', onBack: widget.onBack),
+        const SizedBox(height: 4),
+        Text(
+          'Screen color calibration, HDR, and visual enhancements',
+          style: TextStyle(fontSize: 13.5, color: colors.onSurfaceVariant),
+        ),
+        const SizedBox(height: 10),
+
+        HeroCard(
+          icon: Icons.palette_rounded,
+          accent: accent,
+          title: 'Display Engine',
+          subtitle: snapshot.displayHal == 1
+              ? snapshot.displayColor == -1 && snapshot.displayTemp == -1
+                    ? 'OEM Control · Colour modes managed by your ROM'
+                    : 'Saved colour overrides · Hardware engine ready'
+              : 'Display calibration unavailable',
+        ),
+        const SizedBox(height: 12),
+
+        const SectionLabel('Display controls'),
+        const SizedBox(height: 8),
+
+        FeatureCard(
+          icon: Icons.color_lens_rounded,
+          accent: accent,
+          title: 'Colour modes',
+          subtitle: 'Display color, temperature, gamut, RGB, and tone balance',
+          onTap: _openColourModes,
+        ),
+
+        const SizedBox(height: 12),
+        const SectionLabel('Display features'),
+        const SizedBox(height: 8),
+
+        _SwitchCard(
+          icon: Icons.wb_sunny_rounded,
+          accent: const Color(0xFFFFB84D),
+          title: 'Sunlight mode',
+          subtitle: 'Improves screen readability under bright outdoor light',
+          value: snapshot.sunlight == 1,
+          enabled: expertEnabled,
+          stateKnown: snapshot.sunlight >= 0,
+          unknownLabel: 'OEM',
+          onChanged: backend.setSunlight,
+        ),
+        const SizedBox(height: 9),
+
+        _SwitchCard(
+          icon: Icons.brightness_6_rounded,
+          accent: const Color(0xFF67C2FF),
+          title: 'Silky brightness',
+          subtitle: 'Smooth brightness dimming curve for low-light comfort',
+          value: snapshot.silky == 1,
+          enabled: expertEnabled,
+          stateKnown: snapshot.silky >= 0,
+          unknownLabel: 'OEM',
+          onChanged: backend.setSilky,
+        ),
+        const SizedBox(height: 9),
+
+        _SwitchCard(
+          icon: Icons.movie_filter_rounded,
+          accent: const Color(0xFFB087FF),
+          title: 'Video enhancement',
+          subtitle: 'Enhance contrast and detail in movies and video playback',
+          value: snapshot.video == 1,
+          enabled: expertEnabled,
+          stateKnown: snapshot.video >= 0,
+          unknownLabel: 'OEM',
+          onChanged: backend.setVideoEnhancement,
+        ),
+        const SizedBox(height: 9),
+
+        _SwitchCard(
+          icon: Icons.hdr_on_rounded,
+          accent: const Color(0xFF74E6C6),
+          title: 'Dolby Vision / HDR',
+          subtitle: 'Expand dynamic range and depth in HDR content',
+          value: snapshot.dolby == 1,
+          enabled: expertEnabled,
+          stateKnown: snapshot.dolby >= 0,
+          unknownLabel: 'OEM',
+          onChanged: backend.setDolbyVision,
+        ),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _BackendSnapshotBuilder(
+      builder: (PeridotBackendSnapshot snapshot) {
+        final PeridotBackend backend = PeridotBackend.instance;
+
+        final int gamut = backend.extendedValue(2);
+
+        final List<int> expert = List<int>.generate(
+          8,
+          (int index) => backend.extendedValue(3 + index),
+          growable: false,
+        );
+
+        final bool expertEnabled =
+            snapshot.controlsAvailable &&
+            snapshot.displayHal == 1 &&
+            !snapshot.busy;
+
+        final Widget currentPage = _showColourModes
+            ? _buildColourModes(
+                context,
+                snapshot,
+                backend,
+                gamut,
+                expert,
+                expertEnabled,
+              )
+            : _buildDisplayStudioRoot(
+                context,
+                snapshot,
+                backend,
+                expertEnabled,
+              );
+
+        return AnimatedSwitcher(
+          duration: MediaQuery.disableAnimationsOf(context)
+              ? Duration.zero
+              : PeridotInteractionSettings.motionDuration(320),
+          reverseDuration: MediaQuery.disableAnimationsOf(context)
+              ? Duration.zero
+              : PeridotInteractionSettings.motionDuration(220),
+          layoutBuilder: (Widget? currentChild, List<Widget> previousChildren) {
+            return peridotDetailLayout(
+              currentChild,
+              previousChildren,
+              forward: _colourTransitionForward,
+            );
+          },
+          transitionBuilder: (Widget child, Animation<double> animation) {
+            return PeridotDetailTransition(
+              animation: animation,
+              previewThrough: true,
+              forward: _colourTransitionForward,
+              active:
+                  child.key ==
+                  ValueKey<String>(
+                    _showColourModes
+                        ? 'display-studio-colour-modes'
+                        : 'display-studio-root',
+                  ),
+              child: child,
+            );
+          },
+          child: KeyedSubtree(
+            key: ValueKey<String>(
+              _showColourModes
+                  ? 'display-studio-colour-modes'
+                  : 'display-studio-root',
+            ),
+            child: PeridotPredictivePlane(
+              nested: true,
+              destination: _showColourModes
+                  ? _buildDisplayStudioRoot(
+                      context,
+                      snapshot,
+                      backend,
+                      expertEnabled,
+                    )
+                  : null,
+              child: currentPage,
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class CpuControlScreen extends StatefulWidget {
+  const CpuControlScreen({required this.onBack, super.key});
+  final VoidCallback onBack;
+
+  @override
+  State<CpuControlScreen> createState() => _CpuControlScreenState();
+}
+
+class _CpuControlScreenState extends State<CpuControlScreen> {
+  Timer? _toastTimer;
+  bool _toastVisible = false;
+  String _toastTag = '';
+  String _toastMessage = '';
+  IconData _toastIcon = Icons.info_outline;
+  Color _toastAccent = const Color(0xFF67C2FF);
+
+  @override
+  void initState() {
+    super.initState();
+    PeridotBackend.instance.refresh();
+  }
+
+  @override
+  void dispose() {
+    _toastTimer?.cancel();
+    super.dispose();
+  }
+
+  void _showGlassToast(
+    String tag,
+    String message,
+    IconData icon,
+    Color accent,
+  ) {
+    _toastTimer?.cancel();
+    setState(() {
+      _toastTag = tag;
+      _toastMessage = message;
+      _toastIcon = icon;
+      _toastAccent = accent;
+      _toastVisible = true;
+    });
+    _toastTimer = Timer(const Duration(milliseconds: 2400), () {
+      if (mounted) {
+        setState(() => _toastVisible = false);
+      }
+    });
+  }
+
+  String _freq(int value) {
+    if (value <= 0) return '—';
+    if (value >= 1000000) return '${(value / 1000000).toStringAsFixed(2)} GHz';
+    return '${(value / 1000).toStringAsFixed(0)} MHz';
+  }
+
+  String _mask(int value) {
+    if (value < 0) return 'Unknown';
+    return '0x${(value & 0xFF).toRadixString(16).padLeft(2, '0').toUpperCase()}';
+  }
+
+  void _applyCorePreset(String name, List<int> onlineCores, Color accent) {
+    PeridotHaptics.confirm();
+    final PeridotBackend backend = PeridotBackend.instance;
+    backend.setCpuManualMode(true);
+    for (int i = 1; i <= 7; i++) {
+      backend.setCpuCoreOnline(i, onlineCores.contains(i));
+    }
+    _showGlassToast(
+      'CORE PRESET APPLIED',
+      '$name (${onlineCores.length} Cores Active)',
+      Icons.memory_rounded,
+      accent,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme colors = theme.colorScheme;
+    final bool isDark = theme.brightness == Brightness.dark;
+
+    return _BackendSnapshotBuilder(
+      builder: (PeridotBackendSnapshot s) {
+        final PeridotBackend backend = PeridotBackend.instance;
+        final int manual = backend.extendedValue(34);
+        final int writeAck = backend.extendedValue(35);
+        final int savedMask = backend.extendedValue(36);
+        final int coreCtlNodes = backend.extendedValue(37);
+        final int frequencyWriteAck = backend.extendedValue(74);
+        final bool canWrite = s.controlsAvailable && !s.busy;
+
+        int clusterCurrentMhz(Iterable<int> cores) {
+          int current = -1;
+          for (final int cpu in cores) {
+            if (s.cpuOnline(cpu) && s.cpuFreqKhz[cpu] > 0) {
+              final int mhz = s.cpuFreqKhz[cpu] ~/ 1000;
+              if (mhz > current) current = mhz;
+            }
+          }
+          return current;
+        }
+
+        int efficiencyOnline = 0;
+        for (int c = 0; c <= 1; c++) {
+          if (s.cpuOnline(c)) efficiencyOnline++;
+        }
+        int performanceOnline = 0;
+        for (int c = 2; c <= 6; c++) {
+          if (s.cpuOnline(c)) performanceOnline++;
+        }
+        int primeOnline = s.cpuOnline(7) ? 1 : 0;
+        final int totalOnline =
+            efficiencyOnline + performanceOnline + primeOnline;
+
+        return Stack(
+          children: <Widget>[
+            PeridotScrollPage(
+              children: <Widget>[
+                DetailHeader(
+                  title: 'CPU Core & Frequency',
+                  onBack: widget.onBack,
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Per-cluster frequency ranges, exact locks, and processor core control',
+                  style: TextStyle(
+                    fontSize: 13.5,
+                    color: colors.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 12),
+
+                // 1. HERO CARD WITH LIVE CORE STATUS
+                SurfaceCard(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(16),
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: isDark
+                            ? <Color>[
+                                const Color(0xFF1E293B),
+                                const Color(0xFF0F172A),
+                              ]
+                            : <Color>[
+                                const Color(0xFFEFF6FF),
+                                const Color(0xFFDBEAFE),
+                              ],
+                      ),
+                    ),
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                'CPU TOPOLOGY',
+                                style: TextStyle(
+                                  fontSize: 9,
+                                  letterSpacing: 1,
+                                  fontWeight: FontWeight.w700,
+                                  color: colors.onSurfaceVariant,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            ConstrainedBox(
+                              constraints: const BoxConstraints(maxWidth: 120),
+                              child: _HomeLiveBadge(snapshot: s),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 14),
+                        Row(
+                          children: <Widget>[
+                            Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF38BDF8)
+                                    .withValues(alpha: 0.15),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: const Icon(
+                                Icons.memory_rounded,
+                                color: Color(0xFF38BDF8),
+                                size: 20,
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: <Widget>[
+                                  FittedBox(
+                                    fit: BoxFit.scaleDown,
+                                    alignment: Alignment.centerLeft,
+                                    child: Text(
+                                      'Snapdragon 8s Gen 4 CPU',
+                                      style: TextStyle(
+                                        fontSize: 14.5,
+                                        fontWeight: FontWeight.w800,
+                                        color: colors.onSurface,
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    '$totalOnline / 8 cores online',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w500,
+                                      color: colors.onSurfaceVariant,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        Row(
+                          children: <Widget>[
+                            _buildHeroStat(
+                              label: 'EFFICIENCY (2C)',
+                              val: '$efficiencyOnline / 2 Online',
+                              accent: const Color(0xFF4EA8DE),
+                              sub: '2× Cortex-A720',
+                            ),
+                            const SizedBox(width: 8),
+                            _buildHeroStat(
+                              label: 'PERFORMANCE (5C)',
+                              val: '$performanceOnline / 5 Online',
+                              accent: const Color(0xFFA066FF),
+                              sub: '5× Cortex-A720',
+                            ),
+                            const SizedBox(width: 8),
+                            _buildHeroStat(
+                              label: 'PRIME (1C)',
+                              val: '$primeOnline / 1 Online',
+                              accent: const Color(0xFFFF8E3C),
+                              sub: '1× Cortex-X4',
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+
+                _PeridotSconfigCard(
+                  supported: backend.extendedValue(130) == 1,
+                  enabled: canWrite,
+                  current: backend.extendedValue(131),
+                  saved: backend.extendedValue(132),
+                  original: backend.extendedValue(133),
+                  onSelected: (int value) {
+                    backend.setExtendedOperation(32, value);
+                    _showGlassToast(
+                      'THERMAL POLICY REQUESTED',
+                      value < 0
+                          ? 'Restore captured OEM value'
+                          : 'Xiaomi scenario $value',
+                      Icons.thermostat_rounded,
+                      const Color(0xFFFF9F68),
+                    );
+                  },
+                ),
+                const SizedBox(height: 12),
+
+                Text(
+                  'CPU FREQUENCY CONTROL',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.6,
+                    color: colors.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 9),
+                _CpuFrequencyCard(
+                  policy: 0,
+                  title: 'Efficiency Cluster',
+                  subtitle: '2× Cortex-A720 · Cores 0–1',
+                  accent: const Color(0xFF4EA8DE),
+                  currentMhz: clusterCurrentMhz(const <int>[0, 1]),
+                  targetMinMhz: backend.cpuTargetMinFrequency(0),
+                  targetMaxMhz: backend.cpuTargetMaxFrequency(0),
+                  liveMinMhz: backend.cpuLiveMinFrequency(0),
+                  liveMaxMhz: backend.cpuLiveMaxFrequency(0),
+                  availableMhz: backend.cpuAvailableFrequencies(0),
+                  governorCode: s.cpuGovernor0,
+                  writeAck: frequencyWriteAck,
+                  drift: backend.cpuFrequencyDrift(0),
+                  enabled: canWrite,
+                  onFeedback: _showGlassToast,
+                ),
+                const SizedBox(height: 9),
+                _CpuFrequencyCard(
+                  policy: 2,
+                  title: 'Performance Cluster A',
+                  subtitle: '3× Cortex-A720 · Cores 2–4',
+                  accent: const Color(0xFFA066FF),
+                  currentMhz: clusterCurrentMhz(const <int>[2, 3, 4]),
+                  targetMinMhz: backend.cpuTargetMinFrequency(2),
+                  targetMaxMhz: backend.cpuTargetMaxFrequency(2),
+                  liveMinMhz: backend.cpuLiveMinFrequency(2),
+                  liveMaxMhz: backend.cpuLiveMaxFrequency(2),
+                  availableMhz: backend.cpuAvailableFrequencies(2),
+                  governorCode: s.cpuGovernor2,
+                  writeAck: frequencyWriteAck,
+                  drift: backend.cpuFrequencyDrift(2),
+                  enabled: canWrite,
+                  onFeedback: _showGlassToast,
+                ),
+                const SizedBox(height: 9),
+                _CpuFrequencyCard(
+                  policy: 5,
+                  title: 'Performance Cluster B',
+                  subtitle: '2× Cortex-A720 · Cores 5–6',
+                  accent: const Color(0xFFA066FF),
+                  currentMhz: clusterCurrentMhz(const <int>[5, 6]),
+                  targetMinMhz: backend.cpuTargetMinFrequency(5),
+                  targetMaxMhz: backend.cpuTargetMaxFrequency(5),
+                  liveMinMhz: backend.cpuLiveMinFrequency(5),
+                  liveMaxMhz: backend.cpuLiveMaxFrequency(5),
+                  availableMhz: backend.cpuAvailableFrequencies(5),
+                  governorCode: s.cpuGovernor5,
+                  writeAck: frequencyWriteAck,
+                  drift: backend.cpuFrequencyDrift(5),
+                  enabled: canWrite,
+                  onFeedback: _showGlassToast,
+                ),
+                const SizedBox(height: 9),
+                _CpuFrequencyCard(
+                  policy: 7,
+                  title: 'Prime Core',
+                  subtitle: '1× Cortex-X4 · Core 7',
+                  accent: const Color(0xFFFF8E3C),
+                  currentMhz: clusterCurrentMhz(const <int>[7]),
+                  targetMinMhz: backend.cpuTargetMinFrequency(7),
+                  targetMaxMhz: backend.cpuTargetMaxFrequency(7),
+                  liveMinMhz: backend.cpuLiveMinFrequency(7),
+                  liveMaxMhz: backend.cpuLiveMaxFrequency(7),
+                  availableMhz: backend.cpuAvailableFrequencies(7),
+                  governorCode: s.cpuGovernor7,
+                  writeAck: frequencyWriteAck,
+                  drift: backend.cpuFrequencyDrift(7),
+                  enabled: canWrite,
+                  onFeedback: _showGlassToast,
+                ),
+                const SizedBox(height: 10),
+                const SurfaceCard(
+                  child: _InfoBlock(
+                    title: 'How to use CPU frequency control',
+                    text: 'Choose Dynamic Range to set the minimum and maximum, or Exact Lock to make both limits the same. Drag to a supported clock and tap Apply. Live Limits always shows the range currently enforced by the kernel. Each card shows the current governor live; governor selection remains in Advanced Configuration. OEM Reset clears the saved target and returns that cluster to ROM-managed limits.',
+                  ),
+                ),
+                const SizedBox(height: 12),
+
+                // 2. MANUAL MASTER SWITCH
+                _SwitchCard(
+                  icon: Icons.tune_rounded,
+                  accent: const Color(0xFF67C2FF),
+                  title: 'Manual core control',
+                  subtitle: manual == 1
+                      ? 'Manual hotplug active · cores stay at toggled states'
+                      : 'Enable to manually power on/off individual processor cores',
+                  value: manual == 1,
+                  enabled: canWrite,
+                  stateKnown: manual >= 0,
+                  onChanged: (bool val) {
+                    PeridotHaptics.toggle(val);
+                    return backend.setCpuManualMode(val);
+                  },
+                ),
+                const SizedBox(height: 12),
+
+                // 3. QUICK CORE PRESETS
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      'QUICK CORE CONFIGURATIONS',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0.6,
+                        color: colors.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: <Widget>[
+                        Expanded(
+                          child: _buildQuickCoreButton(
+                            isDark: isDark,
+                            colors: colors,
+                            title: 'All Cores On',
+                            subtitle: '8/8 Cores Online',
+                            icon: Icons.flash_on_rounded,
+                            accent: const Color(0xFF00E676),
+                            onTap: () => _applyCorePreset(
+                              'All 8 Cores Online',
+                              <int>[0, 1, 2, 3, 4, 5, 6, 7],
+                              const Color(0xFF00E676),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: _buildQuickCoreButton(
+                            isDark: isDark,
+                            colors: colors,
+                            title: 'Balanced',
+                            subtitle: '7/8 · Prime Core Off',
+                            icon: Icons.balance_rounded,
+                            accent: const Color(0xFF4EA8DE),
+                            onTap: () => _applyCorePreset(
+                              'Balanced 7-Core Mode',
+                              <int>[0, 1, 2, 3, 4, 5, 6],
+                              const Color(0xFF4EA8DE),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: _buildQuickCoreButton(
+                            isDark: isDark,
+                            colors: colors,
+                            title: 'Power Saver',
+                            subtitle: 'Efficiency Cores 0–1',
+                            icon: Icons.eco_rounded,
+                            accent: const Color(0xFF35C997),
+                            onTap: () => _applyCorePreset(
+                              'Eco 4-Core Mode',
+                              <int>[0, 1, 2, 3],
+                              const Color(0xFF35C997),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+
+                // 4. EFFICIENCY CLUSTER (CORES 0-3)
+                SurfaceCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Row(
+                        children: <Widget>[
+                          Container(
+                            width: 10,
+                            height: 10,
+                            decoration: const BoxDecoration(
+                              color: Color(0xFF4EA8DE),
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: <Widget>[
+                                Text(
+                                  'Efficiency Cluster',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w800,
+                                    color: colors.onSurface,
+                                  ),
+                                ),
+                                Text(
+                                  '2× Cortex-A720 · Cores 0–1 · $efficiencyOnline/2 Online',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: colors.onSurfaceVariant,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      const Divider(height: 1),
+                      const SizedBox(height: 6),
+                      for (int cpu = 0; cpu <= 3; cpu++) ...<Widget>[
+                        _CpuStatusRow(
+                          cpu: cpu,
+                          online: s.cpuOnline(cpu),
+                          frequency: s.cpuOnline(cpu)
+                              ? _freq(s.cpuFreqKhz[cpu])
+                              : 'Off',
+                          accent: const Color(0xFF4EA8DE),
+                          clusterTag: cpu == 0 ? 'MASTER' : 'EFFICIENCY',
+                          toggleEnabled: cpu != 0 && manual == 1 && canWrite,
+                          onChanged: cpu == 0
+                              ? null
+                              : (bool online) {
+                                  PeridotHaptics.toggle(online);
+                                  backend.setCpuCoreOnline(cpu, online);
+                                },
+                        ),
+                        if (cpu != 3) const Divider(height: 10),
+                      ],
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+
+                // 5. PERFORMANCE CLUSTER (CORES 4-6)
+                SurfaceCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Row(
+                        children: <Widget>[
+                          Container(
+                            width: 10,
+                            height: 10,
+                            decoration: const BoxDecoration(
+                              color: Color(0xFFA066FF),
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: <Widget>[
+                                Text(
+                                  'Performance Cluster',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w800,
+                                    color: colors.onSurface,
+                                  ),
+                                ),
+                                Text(
+                                  '5× Cortex-A720 · Cores 2–6 · $performanceOnline/5 Online',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: colors.onSurfaceVariant,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      const Divider(height: 1),
+                      const SizedBox(height: 6),
+                      for (int cpu = 4; cpu <= 6; cpu++) ...<Widget>[
+                        _CpuStatusRow(
+                          cpu: cpu,
+                          online: s.cpuOnline(cpu),
+                          frequency: s.cpuOnline(cpu)
+                              ? _freq(s.cpuFreqKhz[cpu])
+                              : 'Off',
+                          accent: const Color(0xFFA066FF),
+                          clusterTag: 'PERFORMANCE',
+                          toggleEnabled: manual == 1 && canWrite,
+                          onChanged: (bool online) {
+                            PeridotHaptics.toggle(online);
+                            backend.setCpuCoreOnline(cpu, online);
+                          },
+                        ),
+                        if (cpu != 6) const Divider(height: 10),
+                      ],
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+
+                // 6. PRIME SUPERCORE (CORE 7)
+                SurfaceCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Row(
+                        children: <Widget>[
+                          Container(
+                            width: 10,
+                            height: 10,
+                            decoration: const BoxDecoration(
+                              color: Color(0xFFFF8E3C),
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: <Widget>[
+                                Text(
+                                  'Prime Core',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w800,
+                                    color: colors.onSurface,
+                                  ),
+                                ),
+                                Text(
+                                  '1× Cortex-X4 · Core 7 · $primeOnline/1 Online',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: colors.onSurfaceVariant,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      const Divider(height: 1),
+                      const SizedBox(height: 6),
+                      _CpuStatusRow(
+                        cpu: 7,
+                        online: s.cpuOnline(7),
+                        frequency: s.cpuOnline(7)
+                            ? _freq(s.cpuFreqKhz[7])
+                            : 'Off',
+                        accent: const Color(0xFFFF8E3C),
+                        clusterTag: 'PRIME',
+                        toggleEnabled: manual == 1 && canWrite,
+                        onChanged: (bool online) {
+                          PeridotHaptics.toggle(online);
+                          backend.setCpuCoreOnline(7, online);
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+
+                // 7. DIAGNOSTICS & SAFETY
+                SurfaceCard(
+                  child: Column(
+                    children: <Widget>[
+                      _DiagnosticRow(
+                        label: 'Control Mode',
+                        good: manual == 1,
+                        detail: manual == 1
+                            ? 'Manual hotplug control'
+                            : 'Automatic balance',
+                      ),
+                      const Divider(height: 14),
+                      _DiagnosticRow(
+                        label: 'Frequency Target',
+                        good: frequencyWriteAck != 0,
+                        detail: frequencyWriteAck == 1
+                            ? 'Last request matched at readback'
+                            : frequencyWriteAck == 2
+                            ? 'Request accepted · effective range differs'
+                            : frequencyWriteAck == 0
+                            ? 'Last request failed'
+                            : 'No request yet',
+                      ),
+                      const Divider(height: 14),
+                      _DiagnosticRow(
+                        label: 'Core State',
+                        good: writeAck == 1,
+                        detail: writeAck == 1
+                            ? 'Applied'
+                            : writeAck == 0
+                            ? 'Failed'
+                            : 'Checking...',
+                      ),
+                      const Divider(height: 14),
+                      _DiagnosticRow(
+                        label: 'Active Core Mask',
+                        good: savedMask >= 0,
+                        detail: _mask(savedMask),
+                      ),
+                      const Divider(height: 14),
+                      _DiagnosticRow(
+                        label: 'Processor Clusters',
+                        good: coreCtlNodes >= 0,
+                        detail: coreCtlNodes >= 0
+                            ? '$coreCtlNodes clusters active'
+                            : 'Unknown',
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+                const SurfaceCard(
+                  child: _InfoBlock(
+                    title: 'Processor Core Safety',
+                    text: 'Primary core (CPU0) remains permanently active to ensure kernel and essential background services run smoothly. Core states persist across device reboots.',
+                  ),
+                ),
+                const SizedBox(height: 80),
+              ],
+            ),
+
+            PeridotFeedbackOverlay(
+              tag: _toastTag,
+              message: _toastMessage,
+              icon: _toastIcon,
+              accent: _toastAccent,
+              visible: _toastVisible,
+              duration: PeridotInteractionSettings.motionDuration(260),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildHeroStat({
+    required String label,
+    required String val,
+    required Color accent,
+    required String sub,
+  }) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: accent.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: accent.withValues(alpha: 0.2)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Row(
+              children: <Widget>[
+                Container(
+                  width: 5,
+                  height: 5,
+                  decoration: BoxDecoration(
+                    color: accent,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      label,
+                      style: TextStyle(
+                        fontSize: 9,
+                        fontWeight: FontWeight.w800,
+                        color: accent,
+                        letterSpacing: 0.4,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 3),
+            Text(
+              val,
+              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w900),
+            ),
+            const SizedBox(height: 1),
+            Text(
+              sub,
+              style: TextStyle(
+                fontSize: 8.5,
+                fontWeight: FontWeight.w600,
+                color: accent.withValues(alpha: 0.9),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildQuickCoreButton({
+    required bool isDark,
+    required ColorScheme colors,
+    required String title,
+    required String subtitle,
+    required IconData icon,
+    required Color accent,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+          decoration: BoxDecoration(
+            color: accent.withValues(alpha: isDark ? 0.12 : 0.08),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: accent.withValues(alpha: 0.3)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Icon(icon, size: 18, color: accent),
+              const SizedBox(height: 6),
+              Text(
+                title,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                  color: colors.onSurface,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                subtitle,
+                style: TextStyle(
+                  fontSize: 9.5,
+                  fontWeight: FontWeight.w500,
+                  color: colors.onSurfaceVariant,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PeridotSconfigCard extends StatefulWidget {
+  const _PeridotSconfigCard({
+    required this.supported,
+    required this.enabled,
+    required this.current,
+    required this.saved,
+    required this.original,
+    required this.onSelected,
+  });
+  final bool supported;
+  final bool enabled;
+  final int current;
+  final int saved;
+  final int original;
+  final ValueChanged<int> onSelected;
+  @override
+  State<_PeridotSconfigCard> createState() => _PeridotSconfigCardState();
+}
+
+class _PeridotSconfigCardState extends State<_PeridotSconfigCard> {
+  static const Color _accent = Color(0xFFFF9F68);
+  late bool _performance;
+  @override
+  void initState() {
+    super.initState();
+    _performance = _isPerformance(widget.saved);
+  }
+
+  @override
+  void didUpdateWidget(covariant _PeridotSconfigCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.saved != widget.saved)
+      _performance = _isPerformance(widget.saved);
+  }
+
+  bool _isPerformance(int mode) => const <int>{50, 56, 68}.contains(mode);
+  String _name(int mode) => switch (mode) {
+    -2 => 'Not captured',
+    -1 => 'Automatic',
+    0 => 'Normal',
+    6 => 'NoLimits',
+    18 => 'Game',
+    50 => 'Perf. Normal',
+    56 => 'Perf. NoLimits',
+    68 => 'Perf. Game',
+    _ => 'Scenario $mode',
+  };
+  void _select(int mode) {
+    if (!widget.enabled || !widget.supported) return;
+    PeridotHaptics.confirm();
+    widget.onSelected(mode);
+  }
+
+  Widget _stat(String label, String value, ColorScheme colors) => Expanded(
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 9,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 0.7,
+            color: colors.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(height: 5),
+        Text(
+          value,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+            color: colors.onSurface,
+          ),
+        ),
+      ],
+    ),
+  );
+  Widget _mode(
+    int code,
+    String title,
+    String subtitle,
+    IconData icon,
+    Color accent,
+  ) {
+    final ColorScheme colors = Theme.of(context).colorScheme;
+    final bool selected = widget.saved == code;
+    final bool live = widget.current == code;
+    final bool enabled = widget.enabled && widget.supported;
+    return Expanded(
+      child: Opacity(
+        opacity: enabled ? 1 : 0.45,
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: enabled ? () => _select(code) : null,
+            borderRadius: BorderRadius.circular(14),
+            child: AnimatedContainer(
+              duration: PeridotInteractionSettings.motionDuration(180),
+              padding: const EdgeInsets.fromLTRB(11, 12, 9, 12),
+              decoration: BoxDecoration(
+                color: selected
+                    ? accent.withValues(alpha: 0.12)
+                    : colors.surfaceContainer.withValues(alpha: 0.45),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: selected
+                      ? accent.withValues(alpha: 0.65)
+                      : colors.outline.withValues(alpha: 0.28),
+                  width: selected ? 1.4 : 1,
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Row(
+                    children: <Widget>[
+                      Icon(
+                        icon,
+                        size: 20,
+                        color: selected ? accent : colors.onSurfaceVariant,
+                      ),
+                      const Spacer(),
+                      if (selected)
+                        Icon(
+                          Icons.check_circle_rounded,
+                          size: 15,
+                          color: accent,
+                        )
+                      else if (live)
+                        Icon(Icons.circle, size: 7, color: accent),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      title,
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                        color: selected ? accent : colors.onSurface,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    subtitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 9.5,
+                      color: colors.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: 9),
+                  Text(
+                    live ? 'CURRENT · $code' : 'MODE $code',
+                    style: TextStyle(
+                      fontSize: 8.5,
+                      letterSpacing: 0.3,
+                      fontWeight: FontWeight.w800,
+                      color: live ? accent : colors.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme colors = Theme.of(context).colorScheme;
+    final bool enabled = widget.enabled && widget.supported;
+    final bool followsOem = widget.saved < 0;
+    final bool matches = !followsOem && widget.saved == widget.current;
+    final String status = !widget.supported
+        ? 'UNAVAILABLE'
+        : followsOem
+        ? 'OEM'
+        : matches
+        ? 'ACTIVE'
+        : 'REQUESTED';
+    return SurfaceCard(
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              const IconTile(
+                icon: Icons.thermostat_rounded,
+                accent: _accent,
+                size: 42,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    const Text(
+                      'Thermal policy',
+                      style: TextStyle(
+                        fontSize: 14.5,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      'Xiaomi Sconfig · CPU + GPU',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: colors.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              StatusPill(
+                label: status,
+                accent: matches
+                    ? const Color(0xFF46CFA1)
+                    : followsOem
+                    ? colors.onSurfaceVariant
+                    : _accent,
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: _accent.withValues(alpha: 0.065),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: _accent.withValues(alpha: 0.16)),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                _stat(
+                  'CURRENT',
+                  widget.supported ? _name(widget.current) : 'Unavailable',
+                  colors,
+                ),
+                const SizedBox(width: 8),
+                _stat(
+                  'SAVED',
+                  followsOem ? 'OEM control' : _name(widget.saved),
+                  colors,
+                ),
+                const SizedBox(width: 8),
+                _stat('ORIGINAL', _name(widget.original), colors),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: _CpuModeButton(
+                  label: 'Standard',
+                  icon: Icons.tune_rounded,
+                  selected: !_performance,
+                  accent: _accent,
+                  enabled: enabled,
+                  onTap: () => setState(() => _performance = false),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _CpuModeButton(
+                  label: 'Performance',
+                  icon: Icons.speed_rounded,
+                  selected: _performance,
+                  accent: _accent,
+                  enabled: enabled,
+                  onTap: () => setState(() => _performance = true),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              _mode(
+                _performance ? 50 : 0,
+                'Normal',
+                'Daily use',
+                Icons.eco_rounded,
+                const Color(0xFF46CFA1),
+              ),
+              const SizedBox(width: 8),
+              _mode(
+                _performance ? 68 : 18,
+                'Game',
+                'Game scenario',
+                Icons.sports_esports_rounded,
+                const Color(0xFFFFB84D),
+              ),
+              const SizedBox(width: 8),
+              _mode(
+                _performance ? 56 : 6,
+                'NoLimits',
+                'Vendor scenario',
+                Icons.bolt_rounded,
+                const Color(0xFFFF6464),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: enabled ? () => _select(-1) : null,
+              icon: const Icon(Icons.restore_rounded, size: 16),
+              label: const Text('Restore original · OEM control'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: colors.onSurfaceVariant,
+                side: BorderSide(color: colors.outline.withValues(alpha: 0.35)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(11),
+                ),
+                padding: const EdgeInsets.symmetric(vertical: 11),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'NoLimits can increase heat and power use. Mode names follow your stock vendor configuration.',
+            style: TextStyle(
+              fontSize: 10.5,
+              height: 1.4,
+              color: colors.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CpuFrequencyCard extends StatefulWidget {
+  const _CpuFrequencyCard({
+    required this.policy,
+    required this.title,
+    required this.subtitle,
+    required this.accent,
+    required this.currentMhz,
+    required this.targetMinMhz,
+    required this.targetMaxMhz,
+    required this.liveMinMhz,
+    required this.liveMaxMhz,
+    required this.availableMhz,
+    required this.governorCode,
+    required this.writeAck,
+    required this.drift,
+    required this.enabled,
+    required this.onFeedback,
+  });
+
+  final int policy;
+  final String title;
+  final String subtitle;
+  final Color accent;
+  final int currentMhz;
+  final int targetMinMhz;
+  final int targetMaxMhz;
+  final int liveMinMhz;
+  final int liveMaxMhz;
+  final List<int> availableMhz;
+  final int governorCode;
+  final int writeAck;
+  final int drift;
+  final bool enabled;
+  final void Function(String, String, IconData, Color) onFeedback;
+
+  @override
+  State<_CpuFrequencyCard> createState() => _CpuFrequencyCardState();
+}
+
+class _CpuFrequencyCardState extends State<_CpuFrequencyCard> {
+  int _minimumMhz = -1;
+  int _maximumMhz = -1;
+  bool _exactLock = false;
+  bool _dirty = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _syncFromBackend(force: true);
+  }
+
+  @override
+  void didUpdateWidget(covariant _CpuFrequencyCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _syncFromBackend();
+  }
+
+  int _nearestAvailable(int requested) {
+    final List<int> available = widget.availableMhz;
+    if (available.isEmpty) return -1;
+    if (requested <= 0) return available.first;
+
+    int nearest = available.first;
+    int distance = (nearest - requested).abs();
+    for (final int frequency in available.skip(1)) {
+      final int nextDistance = (frequency - requested).abs();
+      if (nextDistance < distance) {
+        nearest = frequency;
+        distance = nextDistance;
+      }
+    }
+    return nearest;
+  }
+
+  void _syncFromBackend({bool force = false}) {
+    if (widget.availableMhz.isEmpty || (_dirty && !force)) return;
+
+    final bool custom = widget.targetMinMhz > 0 && widget.targetMaxMhz > 0;
+    final int requestedMin = custom ? widget.targetMinMhz : widget.liveMinMhz;
+    final int requestedMax = custom ? widget.targetMaxMhz : widget.liveMaxMhz;
+    _minimumMhz = _nearestAvailable(requestedMin);
+    _maximumMhz = _nearestAvailable(requestedMax);
+
+    if (_minimumMhz > _maximumMhz) {
+      final int swap = _minimumMhz;
+      _minimumMhz = _maximumMhz;
+      _maximumMhz = swap;
+    }
+    _exactLock = custom && _minimumMhz == _maximumMhz;
+  }
+
+  int _frequencyIndex(int frequency) {
+    final int exact = widget.availableMhz.indexOf(frequency);
+    if (exact >= 0) return exact;
+    return widget.availableMhz.indexOf(_nearestAvailable(frequency));
+  }
+
+  String _frequencyLabel(int mhz) {
+    if (mhz <= 0) return '—';
+    if (mhz >= 1000) {
+      final int hundredths = (mhz * 100) ~/ 1000;
+      final String value = (hundredths / 100).toStringAsFixed(
+        hundredths % 10 == 0 ? 1 : 2,
+      );
+      return '$value GHz';
+    }
+    return '$mhz MHz';
+  }
+
+  String _governorLabel() => switch (widget.governorCode) {
+    0 => 'walt',
+    5 => 'migov',
+    1 => 'conservative',
+    2 => 'powersave',
+    3 => 'performance',
+    4 => 'schedutil',
+    _ => 'Detecting',
+  };
+
+  void _setExactLock(bool lock) {
+    if (_exactLock == lock || widget.availableMhz.isEmpty) return;
+    PeridotHaptics.segment();
+    setState(() {
+      _exactLock = lock;
+      if (lock) {
+        final int target = _maximumMhz > 0
+            ? _maximumMhz
+            : widget.availableMhz.last;
+        _minimumMhz = target;
+        _maximumMhz = target;
+      } else if (_minimumMhz == _maximumMhz) {
+        _minimumMhz = widget.availableMhz.first;
+      }
+      _dirty = true;
+    });
+  }
+
+  void _apply() {
+    if (!widget.enabled ||
+        widget.availableMhz.isEmpty ||
+        _minimumMhz <= 0 ||
+        _maximumMhz <= 0) {
+      PeridotHaptics.reject();
+      return;
+    }
+
+    final bool accepted = PeridotBackend.instance.setCpuClusterFreqRange(
+      widget.policy,
+      _minimumMhz,
+      _maximumMhz,
+    );
+    if (!accepted) {
+      PeridotHaptics.reject();
+      return;
+    }
+
+    PeridotHaptics.confirm();
+    setState(() => _dirty = false);
+    widget.onFeedback(
+      _exactLock ? 'EXACT LOCK REQUESTED' : 'FREQUENCY RANGE REQUESTED',
+      _exactLock
+          ? '${widget.title} · ${_frequencyLabel(_maximumMhz)}'
+          : '${widget.title} · ${_frequencyLabel(_minimumMhz)} – ${_frequencyLabel(_maximumMhz)}',
+      _exactLock ? Icons.lock_rounded : Icons.tune_rounded,
+      widget.accent,
+    );
+  }
+
+  void _reset() {
+    if (!widget.enabled) {
+      PeridotHaptics.reject();
+      return;
+    }
+
+    final bool accepted = PeridotBackend.instance.resetCpuClusterFreqRange(
+      widget.policy,
+    );
+    if (!accepted) {
+      PeridotHaptics.reject();
+      return;
+    }
+
+    PeridotHaptics.confirm();
+    setState(() {
+      _dirty = false;
+      _exactLock = false;
+      if (widget.availableMhz.isNotEmpty) {
+        _minimumMhz = widget.availableMhz.first;
+        _maximumMhz = widget.availableMhz.last;
+      }
+    });
+    widget.onFeedback(
+      'OEM RANGE REQUESTED',
+      '${widget.title} returned to OEM-managed limits',
+      Icons.restart_alt_rounded,
+      widget.accent,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme colors = Theme.of(context).colorScheme;
+    final bool custom = widget.targetMinMhz > 0 && widget.targetMaxMhz > 0;
+    final bool tableReady = widget.availableMhz.isNotEmpty;
+    final int maxIndex = tableReady ? widget.availableMhz.length - 1 : 0;
+    final int minIndex = tableReady
+        ? _frequencyIndex(_minimumMhz).clamp(0, maxIndex)
+        : 0;
+    final int selectedMaxIndex = tableReady
+        ? _frequencyIndex(_maximumMhz).clamp(0, maxIndex)
+        : 0;
+    final String stateLabel = _dirty
+        ? 'EDITING'
+        : !custom
+        ? 'OEM'
+        : widget.targetMinMhz == widget.targetMaxMhz
+        ? (widget.drift == 0 ? 'LOCK VERIFIED' : 'LOCK REQUESTED')
+        : 'RANGE';
+    final String verification = !custom
+        ? 'OEM managed'
+        : widget.drift == 0
+        ? 'Target verified'
+        : widget.writeAck == 0
+        ? 'Request failed'
+        : 'Requested range saved · driver/OEM limits differ';
+
+    return SurfaceCard(
+      padding: const EdgeInsets.fromLTRB(14, 13, 14, 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              Container(
+                width: 9,
+                height: 9,
+                decoration: BoxDecoration(
+                  color: widget.accent,
+                  shape: BoxShape.circle,
+                  boxShadow: <BoxShadow>[
+                    BoxShadow(
+                      color: widget.accent.withValues(alpha: 0.45),
+                      blurRadius: 8,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 9),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      widget.title,
+                      style: const TextStyle(
+                        fontSize: 14.5,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 1),
+                    Text(
+                      widget.subtitle,
+                      style: TextStyle(
+                        fontSize: 10.8,
+                        color: colors.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              StatusPill(label: stateLabel, accent: widget.accent),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: widget.accent.withValues(alpha: 0.075),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: widget.accent.withValues(alpha: 0.22)),
+            ),
+            child: Row(
+              children: <Widget>[
+                Expanded(
+                  child: _CpuFrequencyMetric(
+                    label: 'CURRENT',
+                    value: _frequencyLabel(widget.currentMhz),
+                    accent: widget.accent,
+                  ),
+                ),
+                Container(
+                  width: 1,
+                  height: 35,
+                  color: colors.outline.withValues(alpha: 0.28),
+                ),
+                Expanded(
+                  child: _CpuFrequencyMetric(
+                    label: 'LIVE LIMITS',
+                    value:
+                        '${_frequencyLabel(widget.liveMinMhz)} – ${_frequencyLabel(widget.liveMaxMhz)}',
+                    accent: widget.accent,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 11),
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: Text(
+                  'Live governor: ${_governorLabel()}',
+                  style: TextStyle(
+                    fontSize: 10.8,
+                    fontWeight: FontWeight.w600,
+                    color: colors.onSurfaceVariant,
+                  ),
+                ),
+              ),
+              Text(
+                tableReady
+                    ? '${widget.availableMhz.length} supported clocks'
+                    : 'Reading clock table',
+                style: TextStyle(
+                  fontSize: 10.2,
+                  color: colors.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: _CpuModeButton(
+                  label: 'Dynamic Range',
+                  icon: Icons.swap_horiz_rounded,
+                  selected: !_exactLock,
+                  accent: widget.accent,
+                  enabled: widget.enabled && tableReady,
+                  onTap: () => _setExactLock(false),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _CpuModeButton(
+                  label: 'Exact Lock',
+                  icon: Icons.lock_rounded,
+                  selected: _exactLock,
+                  accent: widget.accent,
+                  enabled: widget.enabled && tableReady,
+                  onTap: () => _setExactLock(true),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 220),
+            switchInCurve: Curves.easeOutCubic,
+            switchOutCurve: Curves.easeInCubic,
+            child: !tableReady
+                ? SizedBox(
+                    key: const ValueKey<String>('loading'),
+                    height: 54,
+                    child: Center(
+                      child: Text(
+                        'Waiting for the kernel frequency table…',
+                        style: TextStyle(color: colors.onSurfaceVariant),
+                      ),
+                    ),
+                  )
+                : _exactLock
+                ? Column(
+                    key: const ValueKey<String>('lock'),
+                    children: <Widget>[
+                      _CpuRangeLabels(
+                        leftLabel: 'LOCK TARGET',
+                        leftValue: _frequencyLabel(_maximumMhz),
+                        rightLabel: 'MIN = MAX',
+                        rightValue: '${_maximumMhz} MHz',
+                        accent: widget.accent,
+                      ),
+                      Slider(
+                        value: selectedMaxIndex.toDouble(),
+                        min: 0,
+                        max: maxIndex.toDouble(),
+                        divisions: maxIndex > 0 ? maxIndex : null,
+                        label: _frequencyLabel(_maximumMhz),
+                        activeColor: widget.accent,
+                        onChangeStart: widget.enabled
+                            ? (_) => PeridotHaptics.segment()
+                            : null,
+                        onChanged: widget.enabled
+                            ? (double value) {
+                                final int target =
+                                    widget.availableMhz[value.round()];
+                                if (target == _maximumMhz) return;
+                                setState(() {
+                                  _minimumMhz = target;
+                                  _maximumMhz = target;
+                                  _dirty = true;
+                                });
+                                PeridotHaptics.frequentSegment();
+                              }
+                            : null,
+                        onChangeEnd: widget.enabled
+                            ? (_) => PeridotHaptics.confirm()
+                            : null,
+                      ),
+                    ],
+                  )
+                : Column(
+                    key: const ValueKey<String>('range'),
+                    children: <Widget>[
+                      _CpuRangeLabels(
+                        leftLabel: 'MINIMUM',
+                        leftValue: _frequencyLabel(_minimumMhz),
+                        rightLabel: 'MAXIMUM',
+                        rightValue: _frequencyLabel(_maximumMhz),
+                        accent: widget.accent,
+                      ),
+                      RangeSlider(
+                        values: RangeValues(
+                          minIndex.toDouble(),
+                          selectedMaxIndex.toDouble(),
+                        ),
+                        min: 0,
+                        max: maxIndex.toDouble(),
+                        divisions: maxIndex > 0 ? maxIndex : null,
+                        labels: RangeLabels(
+                          _frequencyLabel(_minimumMhz),
+                          _frequencyLabel(_maximumMhz),
+                        ),
+                        activeColor: widget.accent,
+                        onChangeStart: widget.enabled
+                            ? (_) => PeridotHaptics.segment()
+                            : null,
+                        onChanged: widget.enabled
+                            ? (RangeValues values) {
+                                final int minimum =
+                                    widget.availableMhz[values.start.round()];
+                                final int maximum =
+                                    widget.availableMhz[values.end.round()];
+                                if (minimum == _minimumMhz &&
+                                    maximum == _maximumMhz) {
+                                  return;
+                                }
+                                setState(() {
+                                  _minimumMhz = minimum;
+                                  _maximumMhz = maximum;
+                                  _dirty = true;
+                                });
+                                PeridotHaptics.frequentSegment();
+                              }
+                            : null,
+                        onChangeEnd: widget.enabled
+                            ? (_) => PeridotHaptics.confirm()
+                            : null,
+                      ),
+                    ],
+                  ),
+          ),
+          Row(
+            children: [
+              Icon(
+                widget.drift == 1 ? Icons.sync_rounded : Icons.verified_rounded,
+                size: 14,
+                color: widget.drift == 1
+                    ? colors.onSurfaceVariant
+                    : widget.accent,
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  verification,
+                  style: TextStyle(
+                    fontSize: 10.5,
+                    height: 1.4,
+                    fontWeight: FontWeight.w600,
+                    color: colors.onSurfaceVariant,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerRight,
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 6,
+              children: [
+                TextButton.icon(
+                  onPressed: widget.enabled ? _reset : null,
+                  icon: const Icon(Icons.restart_alt_rounded, size: 17),
+                  label: const Text('OEM Reset'),
+                ),
+                FilledButton.tonalIcon(
+                  onPressed: widget.enabled && tableReady && _dirty
+                      ? _apply
+                      : null,
+                  icon: Icon(
+                    _exactLock ? Icons.lock_rounded : Icons.check_rounded,
+                    size: 17,
+                  ),
+                  label: const Text('Apply'),
+                  style: FilledButton.styleFrom(
+                    foregroundColor: widget.accent,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 9,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CpuFrequencyMetric extends StatelessWidget {
+  const _CpuFrequencyMetric({
+    required this.label,
+    required this.value,
+    required this.accent,
+  });
+
+  final String label;
+  final String value;
+  final Color accent;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: <Widget>[
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 9,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 0.5,
+            color: accent,
+          ),
+        ),
+        const SizedBox(height: 3),
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(
+            value,
+            maxLines: 1,
+            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _CpuModeButton extends StatelessWidget {
+  const _CpuModeButton({
+    required this.label,
+    required this.icon,
+    required this.selected,
+    required this.accent,
+    required this.enabled,
+    required this.onTap,
+  });
+
+  final String label;
+  final IconData icon;
+  final bool selected;
+  final Color accent;
+  final bool enabled;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme colors = Theme.of(context).colorScheme;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: enabled ? onTap : null,
+        borderRadius: BorderRadius.circular(11),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOutCubic,
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+          decoration: BoxDecoration(
+            color: selected
+                ? accent.withValues(alpha: 0.13)
+                : colors.surfaceContainer.withValues(alpha: 0.4),
+            borderRadius: BorderRadius.circular(11),
+            border: Border.all(
+              color: selected
+                  ? accent.withValues(alpha: 0.52)
+                  : colors.outline.withValues(alpha: 0.42),
+            ),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: <Widget>[
+              Icon(
+                icon,
+                size: 16,
+                color: selected ? accent : colors.onSurfaceVariant,
+              ),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  label,
+                  softWrap: true,
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w700,
+                    color: selected ? accent : colors.onSurfaceVariant,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CpuRangeLabels extends StatelessWidget {
+  const _CpuRangeLabels({
+    required this.leftLabel,
+    required this.leftValue,
+    required this.rightLabel,
+    required this.rightValue,
+    required this.accent,
+  });
+
+  final String leftLabel;
+  final String leftValue;
+  final String rightLabel;
+  final String rightValue;
+  final Color accent;
+
+  @override
+  Widget build(BuildContext context) {
+    Widget item(String label, String value, CrossAxisAlignment alignment) {
+      return Column(
+        crossAxisAlignment: alignment,
+        children: <Widget>[
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 9.3,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.45,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 13.5,
+              fontWeight: FontWeight.w800,
+              color: accent,
+            ),
+          ),
+        ],
+      );
+    }
+
+    return Row(
+      children: <Widget>[
+        Expanded(child: item(leftLabel, leftValue, CrossAxisAlignment.start)),
+        const SizedBox(width: 12),
+        Expanded(child: item(rightLabel, rightValue, CrossAxisAlignment.end)),
+      ],
+    );
+  }
+}
+
+class AdvancedConfigurationScreen extends StatefulWidget {
+  const AdvancedConfigurationScreen({required this.onBack, super.key});
+
+  final VoidCallback onBack;
+
+  @override
+  State<AdvancedConfigurationScreen> createState() =>
+      _AdvancedConfigurationScreenState();
+}
+
+class _AdvancedConfigurationScreenState
+    extends State<AdvancedConfigurationScreen> {
+  @override
+  void initState() {
+    super.initState();
+    PeridotBackend.instance.refresh();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    const List<_ChoiceOption> cpuGovernors = <_ChoiceOption>[
+      _ChoiceOption(0, 'walt'),
+      _ChoiceOption(5, 'migov'),
+      _ChoiceOption(1, 'conservative'),
+      _ChoiceOption(2, 'powersave'),
+      _ChoiceOption(3, 'performance'),
+      _ChoiceOption(4, 'schedutil'),
+    ];
+
+    const List<_ChoiceOption> schedulers = <_ChoiceOption>[
+      _ChoiceOption(0, 'none'),
+      _ChoiceOption(1, 'mq-deadline'),
+      _ChoiceOption(2, 'kyber'),
+      _ChoiceOption(3, 'bfq'),
+    ];
+
+    return _BackendSnapshotBuilder(
+      builder: (PeridotBackendSnapshot snapshot) {
+        final PeridotBackend backend = PeridotBackend.instance;
+        final int drift0 = backend.extendedValue(14);
+        final int drift4 = backend.extendedValue(15);
+        final int drift7 = backend.extendedValue(16);
+        final int ioDrift = backend.extendedValue(18);
+
+        return PeridotScrollPage(
+          children: <Widget>[
+            DetailHeader(
+              title: 'Advanced Configuration',
+              onBack: widget.onBack,
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Processor governors, graphics scaling, and storage queue policies',
+              style: TextStyle(
+                fontSize: 13.5,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 10),
+            const HeroCard(
+              icon: Icons.tune_rounded,
+              accent: Color(0xFFFF9F68),
+              title: 'Persistent System Tuning',
+              subtitle: 'Settings are saved securely and automatically maintained in the background',
+            ),
+            const SizedBox(height: 12),
+            const SectionLabel('CPU governors'),
+            const SizedBox(height: 8),
+            _ChoiceCard(
+              title: 'Efficiency cluster',
+              subtitle: 'Efficiency cores (Cores 0–1)',
+              icon: Icons.memory_rounded,
+              accent: const Color(0xFF46CFA1),
+              selectedCode: snapshot.cpuGovernor0,
+              options: cpuGovernors,
+              enabled: snapshot.controlsAvailable && !snapshot.busy,
+              onSelected: (int code) => backend.setCpuGovernor(0, code),
+            ),
+            const SizedBox(height: 9),
+            _ChoiceCard(
+              title: 'Performance cluster A',
+              subtitle: 'Performance cores (Cores 2–4)',
+              icon: Icons.memory_rounded,
+              accent: const Color(0xFFB087FF),
+              selectedCode: snapshot.cpuGovernor2,
+              options: cpuGovernors,
+              enabled: snapshot.controlsAvailable && !snapshot.busy,
+              onSelected: (int code) => backend.setCpuGovernor(2, code),
+            ),
+            const SizedBox(height: 9),
+            _ChoiceCard(
+              title: 'Performance cluster B',
+              subtitle: 'Performance cores (Cores 5–6)',
+              icon: Icons.memory_rounded,
+              accent: const Color(0xFFB087FF),
+              selectedCode: snapshot.cpuGovernor5,
+              options: cpuGovernors,
+              enabled: snapshot.controlsAvailable && !snapshot.busy,
+              onSelected: (int code) => backend.setCpuGovernor(5, code),
+            ),
+            const SizedBox(height: 9),
+            _ChoiceCard(
+              title: 'Prime cluster',
+              subtitle: 'Prime core (Core 7)',
+              icon: Icons.memory_rounded,
+              accent: const Color(0xFFFF9F68),
+              selectedCode: snapshot.cpuGovernor7,
+              options: cpuGovernors,
+              enabled: snapshot.controlsAvailable && !snapshot.busy,
+              onSelected: (int code) => backend.setCpuGovernor(7, code),
+            ),
+            const SizedBox(height: 9),
+            SurfaceCard(
+              child: Column(
+                children: <Widget>[
+                  _PersistenceStatusRow(
+                    label: 'Efficiency governor persistence',
+                    state: drift0,
+                  ),
+                  const Divider(height: 14),
+                  _PersistenceStatusRow(
+                    label: 'Performance governor persistence',
+                    state: drift4,
+                  ),
+                  const Divider(height: 14),
+                  _PersistenceStatusRow(
+                    label: 'Prime governor persistence',
+                    state: drift7,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            const SectionLabel('Storage scheduler'),
+            const SizedBox(height: 8),
+            _ChoiceCard(
+              title: 'UFS storage scheduler',
+              subtitle: 'Queue policy across every detected UFS LUN',
+              icon: Icons.storage_rounded,
+              accent: Theme.of(context).colorScheme.primary,
+              selectedCode: snapshot.ufsScheduler,
+              options: schedulers,
+              enabled: snapshot.controlsAvailable && !snapshot.busy,
+              onSelected: backend.setUfsScheduler,
+            ),
+            const SizedBox(height: 9),
+            SurfaceCard(
+              child: _PersistenceStatusRow(
+                label: 'UFS scheduler persistence',
+                state: ioDrift,
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class ResolutionScreen extends StatefulWidget {
+  const ResolutionScreen({required this.onBack, super.key});
+
+  final VoidCallback onBack;
+
+  @override
+  State<ResolutionScreen> createState() => _ResolutionScreenState();
+}
+
+class _ResolutionScreenState extends State<ResolutionScreen> {
+  int _customWidth = 1080;
+  int _customHeight = 2400;
+  int _customDensity = 460;
+  bool _lockAspectRatio = true;
+  bool _applying = false;
+  bool _customDefaultsLoaded = false;
+
+  int _densityForWidth(int nativeDensity, int width) =>
+      ((nativeDensity * width + 610) ~/ 1220);
+
+  @override
+  void initState() {
+    super.initState();
+    PeridotBackend.instance.refresh();
+  }
+
+  void _applyResolution(int width, int height, int density, String label) {
+    final PeridotBackend backend = PeridotBackend.instance;
+    backend.haptic(2);
+    setState(() => _applying = true);
+
+    final bool isNative =
+        (width <= 0 || height <= 0) || (width == 1220 && height == 2712);
+
+    if (isNative) {
+      backend.resetDisplayResolution();
+    } else {
+      backend.setDisplayResolution(width, height, density);
+    }
+
+    Future<void>.delayed(const Duration(milliseconds: 350), () {
+      backend.refresh();
+      if (mounted) {
+        setState(() => _applying = false);
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 2),
+            backgroundColor: Colors.transparent,
+            elevation: 0,
+            padding: EdgeInsets.zero,
+            margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+            content: PeridotFeedbackCard(
+              tag: 'RESOLUTION',
+              icon: Icons.check_circle_rounded,
+              accent: const Color(0xFFFFBE63),
+              message: isNative
+                  ? 'Reset to Peridot Essential native panel'
+                  : 'Applied $label ($width × $height @ ${density}DPI)',
+            ),
+          ),
+        );
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    const Color accent = Color(0xFFFFBE63);
+    final ColorScheme colors = Theme.of(context).colorScheme;
+    final bool dark = Theme.of(context).brightness == Brightness.dark;
+
+    return _BackendSnapshotBuilder(
+      builder: (PeridotBackendSnapshot snapshot) {
+        final PeridotBackend backend = PeridotBackend.instance;
+        final int activeWidth = backend.extendedValue(22);
+        final int activeHeight = backend.extendedValue(23);
+        final int hzX10 = backend.extendedValue(24);
+        final int selectedHzX10 = backend.extendedValue(25);
+        final int detectedNativeDensity = backend.extendedValue(78);
+        final int nativeDensity = detectedNativeDensity > 0
+            ? detectedNativeDensity
+            : 520;
+        final int detectedActiveDensity = backend.extendedValue(38);
+        final int activeDensity = detectedActiveDensity > 0
+            ? detectedActiveDensity
+            : nativeDensity;
+
+        final bool isNative =
+            activeWidth <= 0 || (activeWidth == 1220 && activeHeight == 2712);
+        final bool isFhd = activeWidth == 1080 && activeHeight == 2400;
+        final bool isHd = activeWidth == 720 && activeHeight == 1600;
+        final bool isQhd = activeWidth == 1440 && activeHeight == 3200;
+
+        if (!_customDefaultsLoaded && detectedNativeDensity > 0) {
+          _customDefaultsLoaded = true;
+          if (!isNative && activeWidth > 0 && activeHeight > 0) {
+            _customWidth = activeWidth;
+            _customHeight = activeHeight;
+            _customDensity = activeDensity;
+          } else {
+            _customDensity = _densityForWidth(nativeDensity, _customWidth);
+          }
+        }
+
+        String hz(int value) {
+          if (value <= 0) return '—';
+          final double rate = value / 10.0;
+          return value % 10 == 0
+              ? '${rate.toStringAsFixed(0)} Hz'
+              : '${rate.toStringAsFixed(1)} Hz';
+        }
+
+        final String refreshValue =
+            hzX10 > 0 && selectedHzX10 > 0 && hzX10 != selectedHzX10
+            ? '${hz(hzX10).replaceAll(' Hz', '')} / ${hz(selectedHzX10)}'
+            : hz(hzX10 > 0 ? hzX10 : selectedHzX10);
+        final int densityMax = nativeDensity * 2 > 800
+            ? nativeDensity * 2
+            : 800;
+
+        final List<_ResolutionPreset> presets = <_ResolutionPreset>[
+          _ResolutionPreset(
+            title: 'Native 1.5K Pro',
+            badge: '1.5K NATIVE',
+            resolutionText: '1220 × 2712',
+            width: 1220,
+            height: 2712,
+            density: nativeDensity,
+            aspectRatio: '20:9',
+            description: 'Peridot physical hardware panel resolution. Maximum sharpness and true 1:1 pixel rendering with zero scaling.',
+            accentColor: const Color(0xFF59BCFF),
+            icon: Icons.auto_awesome_rounded,
+            isActive: isNative,
+          ),
+          _ResolutionPreset(
+            title: 'Full HD+ (High Performance)',
+            badge: 'FHD+ 1080p',
+            resolutionText: '1080 × 2400',
+            width: 1080,
+            height: 2400,
+            density: _densityForWidth(nativeDensity, 1080),
+            aspectRatio: '20:9',
+            description: 'Reduces GPU rasterization load by ~22%. Boosts sustained 120 FPS frame stability in heavy 3D games.',
+            accentColor: const Color(0xFF38E598),
+            icon: Icons.sports_esports_rounded,
+            isActive: isFhd,
+          ),
+          _ResolutionPreset(
+            title: 'HD+ (Ultra Battery Saver)',
+            badge: 'HD+ 720p',
+            resolutionText: '720 × 1600',
+            width: 720,
+            height: 1600,
+            density: _densityForWidth(nativeDensity, 720),
+            aspectRatio: '20:9',
+            description: 'Lowest GPU workload and power consumption. Drastically extends battery life in emergency situations.',
+            accentColor: const Color(0xFFFFA048),
+            icon: Icons.battery_charging_full_rounded,
+            isActive: isHd,
+          ),
+          _ResolutionPreset(
+            title: 'Quad HD+ (High Density Canvas)',
+            badge: 'QHD+ 1440p',
+            resolutionText: '1440 × 3200',
+            width: 1440,
+            height: 3200,
+            density: _densityForWidth(nativeDensity, 1440),
+            aspectRatio: '20:9',
+            description: 'Downscaled 2K virtual canvas for maximum screen real estate and ultra-compact multitasking view.',
+            accentColor: const Color(0xFFB087FF),
+            icon: Icons.fullscreen_rounded,
+            isActive: isQhd,
+          ),
+        ];
+
+        return PeridotScrollPage(
+          children: <Widget>[
+            DetailHeader(title: 'Resolution', onBack: widget.onBack),
+            const SizedBox(height: 4),
+            Text(
+              'ROM-aware resolution and logical-density scaling for Peridot (1220×2712 1.5K AMOLED)',
+              style: TextStyle(fontSize: 13.5, color: colors.onSurfaceVariant),
+            ),
+            const SizedBox(height: 12),
+
+            // Live Hero Card
+            SurfaceCard(
+              padding: const EdgeInsets.all(18),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Row(
+                    children: <Widget>[
+                      Container(
+                        width: 44,
+                        height: 44,
+                        decoration: BoxDecoration(
+                          color: accent.withValues(alpha: dark ? 0.14 : 0.09),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: accent.withValues(alpha: dark ? 0.28 : 0.18),
+                          ),
+                        ),
+                        child: const Icon(
+                          Icons.grid_view_rounded,
+                          size: 22,
+                          color: accent,
+                        ),
+                      ),
+                      const SizedBox(width: 13),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: <Widget>[
+                            FittedBox(
+                              fit: BoxFit.scaleDown,
+                              alignment: Alignment.centerLeft,
+                              child: Text(
+                                activeWidth > 0 && activeHeight > 0
+                                    ? '$activeWidth × $activeHeight'
+                                    : '1220 × 2712',
+                                style: const TextStyle(
+                                  fontSize: 21,
+                                  fontWeight: FontWeight.w900,
+                                  letterSpacing: -0.5,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              isNative
+                                  ? 'Peridot 1.5K AMOLED Native (1:1 Map)'
+                                  : isFhd
+                                  ? 'FHD+ High Performance Mode'
+                                  : isHd
+                                  ? 'HD+ Battery Saver Mode'
+                                  : isQhd
+                                  ? 'QHD+ Canvas Mode'
+                                  : 'Custom Resolution Override',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 12.5,
+                                fontWeight: FontWeight.w600,
+                                color: colors.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 5,
+                        ),
+                        decoration: BoxDecoration(
+                          color: (isNative ? const Color(0xFF59BCFF) : accent)
+                              .withValues(alpha: 0.14),
+                          borderRadius: BorderRadius.circular(99),
+                          border: Border.all(
+                            color: (isNative ? const Color(0xFF59BCFF) : accent)
+                                .withValues(alpha: 0.35),
+                          ),
+                        ),
+                        child: Text(
+                          isNative ? '1.5K NATIVE' : 'SCALED',
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 0.7,
+                            color: isNative ? const Color(0xFF59BCFF) : accent,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  Row(
+                    children: <Widget>[
+                      _ResolutionMetricPill(
+                        icon: Icons.aspect_ratio_rounded,
+                        label: 'Aspect',
+                        value: '20:9',
+                      ),
+                      const SizedBox(width: 8),
+                      _ResolutionMetricPill(
+                        icon: Icons.speed_rounded,
+                        label:
+                            hzX10 > 0 &&
+                                selectedHzX10 > 0 &&
+                                hzX10 != selectedHzX10
+                            ? 'Live / Selected'
+                            : 'Refresh',
+                        value: refreshValue,
+                      ),
+                      const SizedBox(width: 8),
+                      _ResolutionMetricPill(
+                        icon: Icons.grain_rounded,
+                        label: 'Density',
+                        value: '$activeDensity DPI',
+                      ),
+                    ],
+                  ),
+                  if (!isNative) ...<Widget>[
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: const Color(0xFF59BCFF),
+                          side: BorderSide(
+                            color: const Color(0xFF59BCFF)
+                                .withValues(alpha: 0.4),
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(13),
+                          ),
+                          padding: const EdgeInsets.symmetric(vertical: 11),
+                        ),
+                        icon: const Icon(Icons.refresh_rounded, size: 17),
+                        label: const Text(
+                          'Reset to 1.5K Native (1220 × 2712)',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w800,
+                            fontSize: 13,
+                          ),
+                        ),
+                        onPressed: _applying
+                            ? null
+                            : () => _applyResolution(
+                                1220,
+                                2712,
+                                nativeDensity,
+                                '1.5K Native',
+                              ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(height: 14),
+
+            // Section Header
+            Wrap(
+              spacing: 12,
+              runSpacing: 6,
+              children: <Widget>[
+                const Text(
+                  'ONYX PRESET MAPPINGS',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 1.1,
+                  ),
+                ),
+                Text(
+                  '1220×2712 Physical Panel',
+                  style: TextStyle(
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w600,
+                    color: colors.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+
+            // Presets Cards
+            for (final _ResolutionPreset preset in presets) ...<Widget>[
+              _PresetCard(
+                preset: preset,
+                applying: _applying,
+                onTap: () => _applyResolution(
+                  preset.width,
+                  preset.height,
+                  preset.density,
+                  preset.title,
+                ),
+              ),
+              const SizedBox(height: 9),
+            ],
+
+            const SizedBox(height: 8),
+
+            // Custom Resolution Tuner
+            SurfaceCard(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Row(
+                    children: <Widget>[
+                      IconTile(
+                        icon: Icons.tune_rounded,
+                        accent: accent,
+                        size: 40,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: <Widget>[
+                            const Text(
+                              'Custom Resolution Tuner',
+                              style: TextStyle(
+                                fontSize: 15.5,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'Uses this ROM\'s native density as the scaling baseline',
+                              style: TextStyle(
+                                fontSize: 11.5,
+                                color: colors.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+
+                  // Aspect Ratio Lock Toggle
+                  Row(
+                    children: <Widget>[
+                      Icon(
+                        _lockAspectRatio
+                            ? Icons.lock_rounded
+                            : Icons.lock_open_rounded,
+                        size: 17,
+                        color: _lockAspectRatio
+                            ? accent
+                            : colors.onSurfaceVariant,
+                      ),
+                      const SizedBox(width: 8),
+                      const Expanded(
+                        child: Text(
+                          'Lock 20:9 Aspect Ratio (Prevents distortion)',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      Switch(
+                        value: _lockAspectRatio,
+                        activeThumbColor: accent,
+                        activeTrackColor: accent.withValues(alpha: 0.35),
+                        onChanged: (bool value) {
+                          setState(() => _lockAspectRatio = value);
+                        },
+                      ),
+                    ],
+                  ),
+                  const Divider(height: 18),
+
+                  // Width Slider
+                  Wrap(
+                    alignment: WrapAlignment.spaceBetween,
+                    spacing: 12,
+                    runSpacing: 4,
+                    children: <Widget>[
+                      const Text(
+                        'Horizontal Width',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      Text(
+                        '$_customWidth px',
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w900,
+                          color: accent,
+                        ),
+                      ),
+                    ],
+                  ),
+                  Slider(
+                    value: _customWidth.toDouble(),
+                    min: 720,
+                    max: 1440,
+                    divisions: 72,
+                    activeColor: accent,
+                    onChangeStart: (_) => PeridotHaptics.segment(),
+                    onChanged: (double val) {
+                      final int w = val.round();
+                      setState(() {
+                        _customWidth = w;
+                        if (_lockAspectRatio) {
+                          _customHeight = (w * 2712 ~/ 1220);
+                          _customDensity = _densityForWidth(nativeDensity, w);
+                        }
+                      });
+                      PeridotHaptics.frequentSegment();
+                    },
+                    onChangeEnd: (_) => PeridotHaptics.confirm(),
+                  ),
+
+                  // Height Slider
+                  Wrap(
+                    alignment: WrapAlignment.spaceBetween,
+                    spacing: 12,
+                    runSpacing: 4,
+                    children: <Widget>[
+                      const Text(
+                        'Vertical Height',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      Text(
+                        '$_customHeight px',
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w900,
+                          color: accent,
+                        ),
+                      ),
+                    ],
+                  ),
+                  Slider(
+                    value: _customHeight.toDouble().clamp(1600, 3200),
+                    min: 1600,
+                    max: 3200,
+                    divisions: 160,
+                    activeColor: accent,
+                    onChangeStart: _lockAspectRatio
+                        ? null
+                        : (_) => PeridotHaptics.segment(),
+                    onChanged: _lockAspectRatio
+                        ? null
+                        : (double val) {
+                            setState(() => _customHeight = val.round());
+                            PeridotHaptics.frequentSegment();
+                          },
+                    onChangeEnd: _lockAspectRatio
+                        ? null
+                        : (_) => PeridotHaptics.confirm(),
+                  ),
+
+                  // Density Slider
+                  Wrap(
+                    alignment: WrapAlignment.spaceBetween,
+                    spacing: 12,
+                    runSpacing: 4,
+                    children: <Widget>[
+                      const Text(
+                        'Pixel Density (DPI)',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      Text(
+                        '$_customDensity DPI',
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w900,
+                          color: accent,
+                        ),
+                      ),
+                    ],
+                  ),
+                  Slider(
+                    value: _customDensity
+                        .toDouble()
+                        .clamp(160.0, densityMax.toDouble())
+                        .toDouble(),
+                    min: 160,
+                    max: densityMax.toDouble(),
+                    divisions: (densityMax - 160) ~/ 5,
+                    activeColor: accent,
+                    onChangeStart: (_) => PeridotHaptics.segment(),
+                    onChanged: (double val) {
+                      setState(() => _customDensity = val.round());
+                      PeridotHaptics.frequentSegment();
+                    },
+                    onChangeEnd: (_) => PeridotHaptics.confirm(),
+                  ),
+
+                  const SizedBox(height: 6),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: accent,
+                        foregroundColor: Colors.black,
+                        padding: const EdgeInsets.symmetric(vertical: 13),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(13),
+                        ),
+                      ),
+                      icon: const Icon(Icons.check_rounded, size: 18),
+                      label: Text(
+                        _applying
+                            ? 'Applying...'
+                            : 'Apply Custom $_customWidth × $_customHeight (${_customDensity}DPI)',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w900,
+                          fontSize: 13.5,
+                        ),
+                      ),
+                      onPressed: _applying
+                          ? null
+                          : () => _applyResolution(
+                              _customWidth,
+                              _customHeight,
+                              _customDensity,
+                              'Custom',
+                            ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+
+            // Hardware Telemetry
+            SurfaceCard(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  const Text(
+                    'Peridot Display Architecture',
+                    style: TextStyle(
+                      fontSize: 14.5,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  _DiagnosticRow(
+                    label: 'Physical Panel Size',
+                    good: true,
+                    detail: '1220 × 2712 (1.5K AMOLED)',
+                  ),
+                  const Divider(height: 14),
+                  _DiagnosticRow(
+                    label: 'ROM Native Logical Density',
+                    good: true,
+                    detail: '$nativeDensity DPI (detected automatically)',
+                  ),
+                  const Divider(height: 14),
+                  _DiagnosticRow(
+                    label: 'Refresh Rate',
+                    good: true,
+                    detail:
+                        hzX10 > 0 && selectedHzX10 > 0 && hzX10 != selectedHzX10
+                        ? '${hz(hzX10)} live · ${hz(selectedHzX10)} selected'
+                        : '${hz(hzX10 > 0 ? hzX10 : selectedHzX10)} system managed',
+                  ),
+                  const Divider(height: 14),
+                  _DiagnosticRow(
+                    label: 'Panel Aspect Ratio',
+                    good: true,
+                    detail: '20:9 (Native Precision)',
+                  ),
+                  const Divider(height: 14),
+                  _DiagnosticRow(
+                    label: 'Active Canvas Mode',
+                    good: true,
+                    detail: isNative
+                        ? '1:1 Native Physical'
+                        : '$activeWidth × $activeHeight Scaled',
+                  ),
+                ],
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _ResolutionPreset {
+  const _ResolutionPreset({
+    required this.title,
+    required this.badge,
+    required this.resolutionText,
+    required this.width,
+    required this.height,
+    required this.density,
+    required this.aspectRatio,
+    required this.description,
+    required this.accentColor,
+    required this.icon,
+    required this.isActive,
+  });
+
+  final String title;
+  final String badge;
+  final String resolutionText;
+  final int width;
+  final int height;
+  final int density;
+  final String aspectRatio;
+  final String description;
+  final Color accentColor;
+  final IconData icon;
+  final bool isActive;
+}
+
+class _PresetCard extends StatelessWidget {
+  const _PresetCard({
+    required this.preset,
+    required this.applying,
+    required this.onTap,
+  });
+
+  final _ResolutionPreset preset;
+  final bool applying;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final bool dark = Theme.of(context).brightness == Brightness.dark;
+    final ColorScheme colors = Theme.of(context).colorScheme;
+
+    return PressScale(
+      onTap: applying || preset.isActive ? null : onTap,
+      child: SurfaceCard(
+        padding: const EdgeInsets.all(15),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Row(
+              children: <Widget>[
+                Container(
+                  width: 38,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    color: preset.accentColor.withValues(
+                      alpha: dark ? 0.14 : 0.09,
+                    ),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: preset.accentColor.withValues(
+                        alpha: dark ? 0.28 : 0.18,
+                      ),
+                    ),
+                  ),
+                  child: Icon(preset.icon, size: 19, color: preset.accentColor),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          preset.title,
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          '${preset.resolutionText} · ${preset.density} DPI · ${preset.aspectRatio}',
+                          style: TextStyle(
+                            fontSize: 11.2,
+                            fontWeight: FontWeight.w700,
+                            color: preset.accentColor,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: preset.isActive
+                        ? preset.accentColor.withValues(alpha: 0.18)
+                        : colors.surfaceContainerHighest.withValues(alpha: 0.5),
+                    borderRadius: BorderRadius.circular(99),
+                    border: Border.all(
+                      color: preset.isActive
+                          ? preset.accentColor.withValues(alpha: 0.45)
+                          : colors.outline.withValues(alpha: 0.2),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      if (preset.isActive) ...<Widget>[
+                        Container(
+                          width: 6,
+                          height: 6,
+                          decoration: BoxDecoration(
+                            color: preset.accentColor,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        const SizedBox(width: 5),
+                      ],
+                      Text(
+                        preset.isActive ? 'ACTIVE' : preset.badge,
+                        style: TextStyle(
+                          fontSize: 9.5,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 0.6,
+                          color: preset.isActive
+                              ? preset.accentColor
+                              : colors.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Text(
+              preset.description,
+              style: TextStyle(
+                fontSize: 11.8,
+                height: 1.35,
+                color: colors.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ResolutionMetricPill extends StatelessWidget {
+  const _ResolutionMetricPill({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme colors = Theme.of(context).colorScheme;
+    final bool dark = Theme.of(context).brightness == Brightness.dark;
+
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
+        decoration: BoxDecoration(
+          color: colors.surfaceContainerHighest.withValues(
+            alpha: dark ? 0.35 : 0.6,
+          ),
+          borderRadius: BorderRadius.circular(11),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Icon(icon, size: 13, color: colors.onSurfaceVariant),
+            const SizedBox(width: 5),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      label,
+                      style: TextStyle(
+                        fontSize: 9,
+                        fontWeight: FontWeight.w700,
+                        color: colors.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      value,
+                      style: const TextStyle(
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class ZramSwapScreen extends StatefulWidget {
+  const ZramSwapScreen({required this.onBack, super.key});
+
+  final VoidCallback onBack;
+
+  @override
+  State<ZramSwapScreen> createState() => _ZramSwapScreenState();
+}
+
+class _ZramSwapScreenState extends State<ZramSwapScreen> {
+  int? _optimisticSizeMb;
+  int? _optimisticAlgCode;
+  int? _optimisticSwappiness;
+  int _customSliderMb = 8192;
+  bool _isCustomMode = false;
+  bool _applying = false;
+  bool _compacting = false;
+
+  // Glass Frosted HUD Toast State
+  String _toastTag = 'ZRAM ENGINE';
+  String _toastMessage = '';
+  IconData _toastIcon = Icons.check_circle_rounded;
+  Color _toastAccent = const Color(0xFF67C2FF);
+  bool _toastVisible = false;
+  Timer? _toastTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    PeridotBackend.instance.refresh();
+    final int currentSize = PeridotBackend.instance.extendedValue(39);
+    final int activeSize = currentSize >= 0 ? currentSize : 8192;
+    _customSliderMb = activeSize;
+    const List<int> standardPresets = <int>[0, 4096, 8192, 12288, 16384];
+    _isCustomMode = !standardPresets.contains(activeSize);
+  }
+
+  @override
+  void dispose() {
+    _toastTimer?.cancel();
+    super.dispose();
+  }
+
+  void _showGlassToast(
+    String tag,
+    String message,
+    IconData icon,
+    Color accent,
+  ) {
+    _toastTimer?.cancel();
+    setState(() {
+      _toastTag = tag;
+      _toastMessage = message;
+      _toastIcon = icon;
+      _toastAccent = accent;
+      _toastVisible = true;
+    });
+    _toastTimer = Timer(const Duration(milliseconds: 2600), () {
+      if (mounted) {
+        setState(() => _toastVisible = false);
+      }
+    });
+  }
+
+  void _applyPresetSize(int sizeMb, String title, IconData icon, Color accent) {
+    PeridotHaptics.confirm();
+    setState(() {
+      _isCustomMode = false;
+      _optimisticSizeMb = sizeMb;
+      _customSliderMb = sizeMb > 0 ? sizeMb : _customSliderMb;
+      _applying = true;
+    });
+
+    final bool applied = PeridotBackend.instance.setZramSize(sizeMb);
+    if (!applied) {
+      setState(() {
+        _optimisticSizeMb = null;
+        _applying = false;
+      });
+      _showGlassToast(
+        'ZRAM ERROR',
+        'Kernel rejected the requested ZRAM size',
+        Icons.error_rounded,
+        const Color(0xFFFF5A64),
+      );
+      PeridotBackend.instance.refresh();
+      return;
+    }
+    _showGlassToast(
+      'ZRAM PRESET',
+      sizeMb == 0
+          ? 'Disabled · Physical RAM Only'
+          : 'Applied $title (${sizeMb} MB)',
+      icon,
+      accent,
+    );
+    Future<void>.delayed(const Duration(milliseconds: 400), () {
+      PeridotBackend.instance.refresh();
+      if (mounted) {
+        setState(() => _applying = false);
+      }
+    });
+  }
+
+  void _applyCustomSize(int sizeMb) {
+    PeridotHaptics.confirm();
+    setState(() {
+      _isCustomMode = true;
+      _optimisticSizeMb = sizeMb;
+      _customSliderMb = sizeMb;
+      _applying = true;
+    });
+
+    final bool applied = PeridotBackend.instance.setZramSize(sizeMb);
+    if (!applied) {
+      setState(() {
+        _optimisticSizeMb = null;
+        _applying = false;
+      });
+      _showGlassToast(
+        'ZRAM ERROR',
+        'Kernel rejected the requested custom size',
+        Icons.error_rounded,
+        const Color(0xFFFF5A64),
+      );
+      PeridotBackend.instance.refresh();
+      return;
+    }
+    _showGlassToast(
+      'CUSTOM SWAP',
+      sizeMb == 0
+          ? 'Disabled · Physical RAM Only'
+          : 'Set to ${(sizeMb / 1024).toStringAsFixed(1)} GB ($sizeMb MB)',
+      Icons.tune_rounded,
+      const Color(0xFF67C2FF),
+    );
+    Future<void>.delayed(const Duration(milliseconds: 400), () {
+      PeridotBackend.instance.refresh();
+      if (mounted) {
+        setState(() => _applying = false);
+      }
+    });
+  }
+
+  void _applyAlgorithm(int algCode) {
+    PeridotHaptics.confirm();
+    setState(() => _optimisticAlgCode = algCode);
+
+    final List<String> algNames = <String>['LZ4', 'ZSTD', 'LZO-RLE', 'LZO'];
+    final String name = algCode >= 0 && algCode < algNames.length
+        ? algNames[algCode]
+        : 'LZ4';
+
+    final bool applied = PeridotBackend.instance.setZramAlgorithm(algCode);
+    if (!applied) {
+      setState(() => _optimisticAlgCode = null);
+      _showGlassToast(
+        'ZRAM ERROR',
+        'Kernel rejected the $name compression engine',
+        Icons.error_rounded,
+        const Color(0xFFFF5A64),
+      );
+      PeridotBackend.instance.refresh();
+      return;
+    }
+    _showGlassToast(
+      'KERNEL ENGINE',
+      'Switched Compression to $name',
+      Icons.compress_rounded,
+      const Color(0xFF41C98A),
+    );
+    Future<void>.delayed(const Duration(milliseconds: 400), () {
+      PeridotBackend.instance.refresh();
+    });
+  }
+
+  void _applySwappiness(int swappiness) {
+    PeridotHaptics.confirm();
+    setState(() => _optimisticSwappiness = swappiness);
+
+    final bool applied = PeridotBackend.instance.setZramSwappiness(swappiness);
+    if (!applied) {
+      setState(() => _optimisticSwappiness = null);
+      _showGlassToast(
+        'ZRAM ERROR',
+        'Kernel rejected swappiness $swappiness',
+        Icons.error_rounded,
+        const Color(0xFFFF5A64),
+      );
+      PeridotBackend.instance.refresh();
+      return;
+    }
+    _showGlassToast(
+      'KERNEL SWAPPINESS',
+      'Swappiness Set to $swappiness',
+      Icons.speed_rounded,
+      const Color(0xFFFFB84D),
+    );
+    PeridotBackend.instance.refresh();
+  }
+
+  void _compactMemory() {
+    if (_compacting) return;
+    PeridotHaptics.confirm();
+    setState(() => _compacting = true);
+
+    _showGlassToast(
+      'MEMORY COMPACTION',
+      'Compacting ZRAM Pages & Defragmenting...',
+      Icons.cleaning_services_rounded,
+      const Color(0xFF74E6C6),
+    );
+
+    PeridotBackend.instance.compactZram();
+    Future<void>.delayed(const Duration(milliseconds: 600), () {
+      PeridotBackend.instance.refresh();
+      if (mounted) {
+        setState(() => _compacting = false);
+        _showGlassToast(
+          'MEMORY COMPACTION',
+          'ZRAM Compaction Complete',
+          Icons.check_circle_rounded,
+          const Color(0xFF41C98A),
+        );
+      }
+    });
+  }
+
+  void _resetDefaults() {
+    PeridotHaptics.confirm();
+    setState(() {
+      _isCustomMode = false;
+      _optimisticSizeMb = 8192;
+      _optimisticAlgCode = 0;
+      _optimisticSwappiness = 100;
+      _customSliderMb = 8192;
+    });
+
+    final bool swappinessApplied = PeridotBackend.instance.setZramSwappiness(100);
+    final bool algorithmApplied = PeridotBackend.instance.setZramAlgorithm(0);
+    final bool sizeApplied = PeridotBackend.instance.setZramSize(8192);
+    if (!swappinessApplied || !algorithmApplied || !sizeApplied) {
+      setState(() {
+        _optimisticSizeMb = null;
+        _optimisticAlgCode = null;
+        _optimisticSwappiness = null;
+      });
+      _showGlassToast(
+        'ZRAM ERROR',
+        'One or more stock settings were rejected by the kernel',
+        Icons.error_rounded,
+        const Color(0xFFFF5A64),
+      );
+      PeridotBackend.instance.refresh();
+      return;
+    }
+    _showGlassToast(
+      'SYSTEM RESTORE',
+      'Reset to 8 GB Stock Optimal Defaults',
+      Icons.restart_alt_rounded,
+      const Color(0xFF41C98A),
+    );
+    Future<void>.delayed(const Duration(milliseconds: 500), () {
+      PeridotBackend.instance.refresh();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bool isDark = Theme.of(context).brightness == Brightness.dark;
+    final ColorScheme colors = Theme.of(context).colorScheme;
+    final Color accent = isDark
+        ? const Color(0xFF67C2FF)
+        : const Color(0xFF0077E6);
+
+    return _BackendSnapshotBuilder(
+      builder: (PeridotBackendSnapshot snapshot) {
+        final PeridotBackend backend = PeridotBackend.instance;
+        final int rawSizeMb = backend.extendedValue(39);
+        final int activeSizeMb =
+            _optimisticSizeMb ?? (rawSizeMb >= 0 ? rawSizeMb : 8192);
+
+        final int origMb = backend.extendedValue(40) >= 0
+            ? backend.extendedValue(40)
+            : 3192;
+        final int comprMb = backend.extendedValue(41) >= 0
+            ? backend.extendedValue(41)
+            : 1067;
+        final int memUsedMb = backend.extendedValue(42) >= 0
+            ? backend.extendedValue(42)
+            : 1067;
+
+        final int rawSwappiness = backend.extendedValue(43);
+        final int swappiness =
+            _optimisticSwappiness ?? (rawSwappiness >= 0 ? rawSwappiness : 100);
+
+        final int rawAlgCode = backend.extendedValue(44);
+        final int algCode =
+            _optimisticAlgCode ?? (rawAlgCode >= 0 ? rawAlgCode : 0);
+
+        final bool isOff = activeSizeMb == 0;
+        final double ratio = comprMb > 0 ? (origMb / comprMb) : 1.0;
+        final int ramSavedMb = (origMb - comprMb).clamp(0, 32768);
+
+        final List<String> algLabels = <String>[
+          'LZ4 (Ultra Fast)',
+          'ZSTD (Max Ratio)',
+          'LZO-RLE (Balanced)',
+          'LZO (Legacy)',
+        ];
+        final String activeAlgLabel = algCode >= 0 && algCode < algLabels.length
+            ? algLabels[algCode]
+            : 'LZ4 (Ultra Fast)';
+
+        final List<_ZramPreset> presets = <_ZramPreset>[
+          _ZramPreset(
+            title: 'Disabled (0 GB)',
+            badge: 'PURE RAM',
+            sizeMb: 0,
+            description: 'Disables compressed swap partition completely. Pure physical RAM only with zero CPU memory overhead.',
+            accentColor: const Color(0xFFFFB84D),
+            icon: Icons.power_settings_new_rounded,
+            isActive: !_isCustomMode && activeSizeMb == 0,
+          ),
+          _ZramPreset(
+            title: '4 GB (Light RAM Plus)',
+            badge: '4 GB SWAP',
+            sizeMb: 4096,
+            description: 'Provides 4,096 MB compressed memory space. Ideal for light usage and minimal background caching.',
+            accentColor: const Color(0xFF59BCFF),
+            icon: Icons.storage_rounded,
+            isActive: !_isCustomMode && activeSizeMb == 4096,
+          ),
+          _ZramPreset(
+            title: '8 GB (Stock Optimal)',
+            badge: '8 GB DEFAULT',
+            sizeMb: 8192,
+            description: 'Recommended factory configuration for Peridot. Perfect balance of multitasking speed and battery life.',
+            accentColor: const Color(0xFF41C98A),
+            icon: Icons.verified_rounded,
+            isActive: !_isCustomMode && activeSizeMb == 8192,
+          ),
+          _ZramPreset(
+            title: '12 GB (Power Multitask)',
+            badge: '12 GB POWER',
+            sizeMb: 12288,
+            description: 'High-capacity 12,288 MB virtual memory buffer. Keeps dozens of apps alive in background with zero redraws.',
+            accentColor: const Color(0xFFB087FF),
+            icon: Icons.all_inclusive_rounded,
+            isActive: !_isCustomMode && activeSizeMb == 12288,
+          ),
+          _ZramPreset(
+            title: '16 GB (Extreme Gaming)',
+            badge: '16 GB MAX',
+            sizeMb: 16384,
+            description: 'Maximum 16,384 MB virtual RAM headroom. Optimized for demanding 3D games, emulation, and heavy tasks.',
+            accentColor: const Color(0xFFFF8A65),
+            icon: Icons.rocket_launch_rounded,
+            isActive: !_isCustomMode && activeSizeMb == 16384,
+          ),
+        ];
+
+        return Stack(
+          children: <Widget>[
+            PeridotScrollPage(
+              children: <Widget>[
+                DetailHeader(
+                  title: 'ZRAM & Swap Manager',
+                  onBack: widget.onBack,
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Hardware memory compression, swap sizing, and kernel swappiness tuning for Peridot',
+                  style: TextStyle(
+                    fontSize: 13.5,
+                    color: colors.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 12),
+
+                // HERO DASHBOARD CARD
+                SurfaceCard(
+                  accent: isOff ? const Color(0xFFFFB84D) : accent,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Row(
+                        children: <Widget>[
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color:
+                                  (isOff
+                                          ? const Color(0xFFFFB84D)
+                                          : const Color(0xFF41C98A))
+                                      .withValues(alpha: 0.16),
+                              border: Border.all(
+                                color:
+                                    (isOff
+                                            ? const Color(0xFFFFB84D)
+                                            : const Color(0xFF41C98A))
+                                        .withValues(alpha: 0.3),
+                                width: 1.2,
+                              ),
+                            ),
+                            child: Icon(
+                              isOff
+                                  ? Icons.power_settings_new_rounded
+                                  : Icons.memory_rounded,
+                              size: 26,
+                              color: isOff
+                                  ? const Color(0xFFFFB84D)
+                                  : const Color(0xFF41C98A),
+                            ),
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: <Widget>[
+                                Wrap(
+                                  crossAxisAlignment: WrapCrossAlignment.center,
+                                  spacing: 8,
+                                  runSpacing: 6,
+                                  children: <Widget>[
+                                    Text(
+                                      isOff
+                                          ? 'Swap Disabled'
+                                          : '${(activeSizeMb / 1024).toStringAsFixed(1)} GB ZRAM',
+                                      style: const TextStyle(
+                                        fontSize: 19,
+                                        fontWeight: FontWeight.w900,
+                                        letterSpacing: -0.2,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                        vertical: 3,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        borderRadius: BorderRadius.circular(8),
+                                        color:
+                                            (isOff
+                                                    ? const Color(0xFFFFB84D)
+                                                    : const Color(0xFF41C98A))
+                                                .withValues(alpha: 0.18),
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: <Widget>[
+                                          Container(
+                                            width: 6,
+                                            height: 6,
+                                            decoration: BoxDecoration(
+                                              shape: BoxShape.circle,
+                                              color: isOff
+                                                  ? const Color(0xFFFFB84D)
+                                                  : const Color(0xFF41C98A),
+                                            ),
+                                          ),
+                                          const SizedBox(width: 4),
+                                          Text(
+                                            isOff ? 'OFF' : 'ACTIVE',
+                                            style: TextStyle(
+                                              fontSize: 9.5,
+                                              fontWeight: FontWeight.w900,
+                                              color: isOff
+                                                  ? const Color(0xFFFFB84D)
+                                                  : const Color(0xFF41C98A),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 3),
+                                Text(
+                                  isOff
+                                      ? 'Physical RAM only · Zero compressed swap'
+                                      : '$activeAlgLabel · $swappiness Swappiness',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: colors.onSurfaceVariant,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+
+                      // TELEMETRY METRIC PILLS
+                      Row(
+                        children: <Widget>[
+                          Expanded(
+                            child: _ZramMetricPill(
+                              label: 'EFFICIENCY',
+                              value: isOff
+                                  ? '1.00×'
+                                  : '${ratio.toStringAsFixed(2)}×',
+                              subvalue: isOff ? 'Disabled' : 'Real-time',
+                              accent: const Color(0xFF41C98A),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: _ZramMetricPill(
+                              label: 'RAM SAVED',
+                              value: isOff ? '0 MB' : '+$ramSavedMb MB',
+                              subvalue: isOff
+                                  ? 'No swap'
+                                  : '$origMb in $comprMb MB',
+                              accent: const Color(0xFF67C2FF),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: _ZramMetricPill(
+                              label: 'USED SWAP',
+                              value: isOff ? '0 MB' : '$memUsedMb MB',
+                              subvalue: isOff ? 'Off' : 'of $activeSizeMb MB',
+                              accent: const Color(0xFFB087FF),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 14),
+
+                // PRESETS SECTION (MAX 16 GB)
+                const Text(
+                  'QUICK ZRAM SIZE PRESETS (MAX 16 GB)',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.8,
+                    color: Color(0xFF9E9E9E),
+                  ),
+                ),
+                const SizedBox(height: 8),
+
+                for (final _ZramPreset preset in presets) ...<Widget>[
+                  _ZramPresetCard(
+                    preset: preset,
+                    applying: _applying,
+                    onTap: () => _applyPresetSize(
+                      preset.sizeMb,
+                      preset.title,
+                      preset.icon,
+                      preset.accentColor,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                ],
+
+                const SizedBox(height: 6),
+
+                // CUSTOM SIZE TUNER (MAX 25 GB)
+                SurfaceCard(
+                  accent: _isCustomMode ? const Color(0xFF67C2FF) : null,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Row(
+                        children: <Widget>[
+                          Icon(Icons.tune_rounded, size: 20, color: accent),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: const Text(
+                              'Custom Swap Size',
+                              style: TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            _customSliderMb == 0
+                                ? 'Disabled'
+                                : '${(_customSliderMb / 1024).toStringAsFixed(1)} GB',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w900,
+                              color: accent,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        _customSliderMb == 0
+                            ? 'Disabled: Pure physical RAM only with zero compressed swap.'
+                            : 'Allocates ${_customSliderMb} MB compressed virtual swap partition (up to 25.0 GB).',
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          color: colors.onSurfaceVariant,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Slider(
+                        value: _customSliderMb.toDouble().clamp(0, 25600),
+                        min: 0,
+                        max: 25600,
+                        divisions: 25,
+                        activeColor: accent,
+                        onChangeStart: (_) => PeridotHaptics.segment(),
+                        onChanged: (double val) {
+                          setState(() {
+                            _customSliderMb = val.round();
+                            _isCustomMode = true;
+                          });
+                          PeridotHaptics.frequentSegment();
+                        },
+                        onChangeEnd: (double val) {
+                          PeridotHaptics.confirm();
+                          _applyCustomSize(val.round());
+                        },
+                      ),
+                      const SizedBox(height: 4),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: _applying
+                              ? null
+                              : () => _applyCustomSize(_customSliderMb),
+                          icon: _applying
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Icon(Icons.check_rounded, size: 18),
+                          label: Text(
+                            _applying ? 'Applying...' : 'Apply',
+                            style: const TextStyle(fontWeight: FontWeight.w800),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+
+                // COMPRESSION ALGORITHM SELECTOR
+                SurfaceCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      const Row(
+                        children: <Widget>[
+                          Icon(
+                            Icons.compress_rounded,
+                            size: 20,
+                            color: Color(0xFF41C98A),
+                          ),
+                          SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Compression Algorithm',
+                              style: TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Select the real-time kernel compression engine for the ZRAM block device.',
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          color: colors.onSurfaceVariant,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+
+                      _AlgorithmOptionCard(
+                        title: 'LZ4 (Ultra Fast)',
+                        badge: 'RECOMMENDED',
+                        description: 'Highest decompression speed and near-zero CPU overhead. Ideal for 120 FPS UI and gaming.',
+                        code: 0,
+                        activeCode: algCode,
+                        accent: const Color(0xFF41C98A),
+                        onTap: () => _applyAlgorithm(0),
+                      ),
+                      const SizedBox(height: 6),
+                      _AlgorithmOptionCard(
+                        title: 'ZSTD (Maximum Density)',
+                        badge: 'MAX RATIO',
+                        description: 'State-of-the-art compression ratio. Compresses up to 40% more data into physical RAM.',
+                        code: 1,
+                        activeCode: algCode,
+                        accent: const Color(0xFF67C2FF),
+                        onTap: () => _applyAlgorithm(1),
+                      ),
+                      const SizedBox(height: 6),
+                      _AlgorithmOptionCard(
+                        title: 'LZO-RLE (Balanced)',
+                        badge: 'BALANCED',
+                        description: 'Standard Android kernel algorithm with run-length zero-page acceleration.',
+                        code: 2,
+                        activeCode: algCode,
+                        accent: const Color(0xFFB087FF),
+                        onTap: () => _applyAlgorithm(2),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+
+                // SWAPPINESS TUNER
+                SurfaceCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Row(
+                        children: <Widget>[
+                          const Icon(
+                            Icons.speed_rounded,
+                            size: 20,
+                            color: Color(0xFFFFB84D),
+                          ),
+                          const SizedBox(width: 8),
+                          const Expanded(
+                            child: Text(
+                              'Kernel Swappiness',
+                              style: TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            '$swappiness',
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w900,
+                              color: Color(0xFFFFB84D),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        swappiness < 60
+                            ? 'Conservative: Avoids swapping memory pages unless physical RAM is critically low.'
+                            : swappiness <= 100
+                            ? 'Balanced (Stock 100): Optimal balance for daily app usage and multi-tasking.'
+                            : swappiness <= 160
+                            ? 'Aggressive: Proactively pushes idle background apps into ZRAM to maximize free RAM for active apps.'
+                            : 'Maximum: Aggressively keeps foreground memory free for heavy gaming.',
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          color: colors.onSurfaceVariant,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Slider(
+                        value: swappiness.toDouble().clamp(0, 200),
+                        min: 0,
+                        max: 200,
+                        divisions: 40,
+                        activeColor: const Color(0xFFFFB84D),
+                        onChangeStart: (_) => PeridotHaptics.segment(),
+                        onChanged: (double val) {
+                          setState(() => _optimisticSwappiness = val.round());
+                          PeridotHaptics.frequentSegment();
+                        },
+                        onChangeEnd: (double val) =>
+                            _applySwappiness(val.round()),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+
+                // INSTANT ACTIONS
+                SurfaceCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      const Text(
+                        'Instant Memory Tools',
+                        style: TextStyle(
+                          fontSize: 14.5,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Row(
+                        children: <Widget>[
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: _compacting ? null : _compactMemory,
+                              icon: _compacting
+                                  ? const SizedBox(
+                                      width: 14,
+                                      height: 14,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : const Icon(
+                                      Icons.cleaning_services_rounded,
+                                      size: 16,
+                                    ),
+                              label: Text(
+                                _compacting ? 'Compacting...' : 'Compact ZRAM',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: _applying ? null : _resetDefaults,
+                              icon: const Icon(
+                                Icons.restart_alt_rounded,
+                                size: 16,
+                              ),
+                              label: const Text(
+                                'Reset 8GB Default',
+                                style: TextStyle(fontWeight: FontWeight.w700),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+
+                // DIAGNOSTICS & HARDWARE SPEC CARD
+                SurfaceCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      const Text(
+                        'ZRAM Hardware Architecture',
+                        style: TextStyle(
+                          fontSize: 14.5,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      _DiagnosticRow(
+                        label: 'Block Device Node',
+                        good: true,
+                        detail: '/dev/block/zram0',
+                      ),
+                      const Divider(height: 14),
+                      _DiagnosticRow(
+                        label: 'Swap Partition Status',
+                        good: !isOff,
+                        detail: isOff ? 'Unmounted' : 'Active (Priority 32758)',
+                      ),
+                      const Divider(height: 14),
+                      _DiagnosticRow(
+                        label: 'Kernel Memory Compaction',
+                        good: true,
+                        detail: 'Supported (/sys/block/zram0/compact)',
+                      ),
+                      const Divider(height: 14),
+                      _DiagnosticRow(
+                        label: 'Memory Stream Decompression',
+                        good: true,
+                        detail: 'Multi-stream Lockless Kernel Engine',
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+
+            // FROSTED GLASS HUD TOAST
+            PeridotFeedbackOverlay(
+              tag: _toastTag,
+              message: _toastMessage,
+              icon: _toastIcon,
+              accent: _toastAccent,
+              visible: _toastVisible,
+              duration: PeridotInteractionSettings.motionDuration(260),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _ZramPreset {
+  const _ZramPreset({
+    required this.title,
+    required this.badge,
+    required this.sizeMb,
+    required this.description,
+    required this.accentColor,
+    required this.icon,
+    required this.isActive,
+  });
+
+  final String title;
+  final String badge;
+  final int sizeMb;
+  final String description;
+  final Color accentColor;
+  final IconData icon;
+  final bool isActive;
+}
+
+class _ZramPresetCard extends StatelessWidget {
+  const _ZramPresetCard({
+    required this.preset,
+    required this.applying,
+    required this.onTap,
+  });
+
+  final _ZramPreset preset;
+  final bool applying;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final bool dark = Theme.of(context).brightness == Brightness.dark;
+    final ColorScheme colors = Theme.of(context).colorScheme;
+
+    return PressScale(
+      onTap: applying || preset.isActive ? null : onTap,
+      child: SurfaceCard(
+        padding: const EdgeInsets.all(14),
+        accent: preset.isActive ? preset.accentColor : null,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Row(
+              children: <Widget>[
+                Container(
+                  width: 38,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    color: preset.accentColor.withValues(
+                      alpha: dark ? 0.14 : 0.09,
+                    ),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: preset.accentColor.withValues(
+                        alpha: dark ? 0.28 : 0.18,
+                      ),
+                    ),
+                  ),
+                  child: Icon(preset.icon, size: 19, color: preset.accentColor),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          preset.title,
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          preset.sizeMb == 0
+                              ? 'Pure Physical RAM · 0 MB Swap'
+                              : '${preset.sizeMb} MB · ${(preset.sizeMb / 1024).toStringAsFixed(1)} GB Capacity',
+                          style: TextStyle(
+                            fontSize: 11.2,
+                            fontWeight: FontWeight.w700,
+                            color: preset.accentColor,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: preset.isActive
+                        ? preset.accentColor.withValues(alpha: 0.18)
+                        : colors.surfaceContainerHighest.withValues(alpha: 0.5),
+                    borderRadius: BorderRadius.circular(99),
+                    border: Border.all(
+                      color: preset.isActive
+                          ? preset.accentColor.withValues(alpha: 0.45)
+                          : colors.outline.withValues(alpha: 0.2),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      if (preset.isActive) ...<Widget>[
+                        Container(
+                          width: 6,
+                          height: 6,
+                          decoration: BoxDecoration(
+                            color: preset.accentColor,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        const SizedBox(width: 5),
+                      ],
+                      Text(
+                        preset.isActive ? 'ACTIVE' : preset.badge,
+                        style: TextStyle(
+                          fontSize: 9.5,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 0.6,
+                          color: preset.isActive
+                              ? preset.accentColor
+                              : colors.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              preset.description,
+              style: TextStyle(
+                fontSize: 11.5,
+                height: 1.35,
+                color: colors.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ZramMetricPill extends StatelessWidget {
+  const _ZramMetricPill({
+    required this.label,
+    required this.value,
+    required this.subvalue,
+    required this.accent,
+  });
+
+  final String label;
+  final String value;
+  final String subvalue;
+  final Color accent;
+
+  @override
+  Widget build(BuildContext context) {
+    final bool dark = Theme.of(context).brightness == Brightness.dark;
+    final ColorScheme colors = Theme.of(context).colorScheme;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 8),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        color: dark
+            ? Colors.black.withValues(alpha: 0.3)
+            : Colors.white.withValues(alpha: 0.6),
+        border: Border.all(color: accent.withValues(alpha: 0.25), width: 1),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 8.5,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.5,
+              color: accent,
+            ),
+          ),
+          const SizedBox(height: 3),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              value,
+              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w900),
+            ),
+          ),
+          const SizedBox(height: 1),
+          Text(
+            subvalue,
+            style: TextStyle(fontSize: 9.5, color: colors.onSurfaceVariant),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AlgorithmOptionCard extends StatelessWidget {
+  const _AlgorithmOptionCard({
+    required this.title,
+    required this.badge,
+    required this.description,
+    required this.code,
+    required this.activeCode,
+    required this.accent,
+    required this.onTap,
+  });
+
+  final String title;
+  final String badge;
+  final String description;
+  final int code;
+  final int activeCode;
+  final Color accent;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final bool isActive = code == activeCode;
+    final ColorScheme colors = Theme.of(context).colorScheme;
+
+    return PressScale(
+      onTap: isActive ? null : onTap,
+      child: Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          color: isActive
+              ? accent.withValues(alpha: 0.12)
+              : colors.surfaceContainerHighest.withValues(alpha: 0.3),
+          border: Border.all(
+            color: isActive ? accent : colors.outline.withValues(alpha: 0.12),
+            width: isActive ? 1.5 : 1,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: const TextStyle(
+                          fontSize: 13.5,
+                          height: 1.3,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        badge,
+                        style: TextStyle(
+                          fontSize: 9,
+                          height: 1.3,
+                          fontWeight: FontWeight.w700,
+                          color: accent,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 6),
+                if (isActive)
+                  Icon(Icons.check_circle_rounded, size: 18, color: accent)
+                else
+                  Icon(
+                    Icons.radio_button_unchecked_rounded,
+                    size: 18,
+                    color: colors.onSurfaceVariant,
+                  ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              description,
+              style: TextStyle(fontSize: 11, color: colors.onSurfaceVariant),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class MaliGpuScreen extends StatefulWidget {
+  const MaliGpuScreen({required this.onBack, super.key});
+
+  final VoidCallback onBack;
+
+  @override
+  State<MaliGpuScreen> createState() => _MaliGpuScreenState();
+}
+
+class _MaliGpuScreenState extends State<MaliGpuScreen> {
+  int? _optimisticProfile;
+  bool? _optimisticUncap;
+  int? _optimisticMinFreq;
+  int? _optimisticMaxFreq;
+  int? _optimisticGov;
+  bool? _optimisticGedBoost;
+  int? _optimisticPowerPolicy;
+  Timer? _interactionTimer;
+
+  // Glass Frosted HUD Toast State
+  String _toastTag = 'MALI GPU';
+  String _toastMessage = '';
+  IconData _toastIcon = Icons.sports_esports_rounded;
+  Color _toastAccent = const Color(0xFFFF5252);
+  bool _toastVisible = false;
+  Timer? _toastTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    PeridotBackend.instance.refresh();
+  }
+
+  @override
+  void dispose() {
+    _toastTimer?.cancel();
+    _interactionTimer?.cancel();
+    super.dispose();
+  }
+
+  void _showGlassToast(
+    String tag,
+    String message,
+    IconData icon,
+    Color accent,
+  ) {
+    _toastTimer?.cancel();
+    setState(() {
+      _toastTag = tag;
+      _toastMessage = message;
+      _toastIcon = icon;
+      _toastAccent = accent;
+      _toastVisible = true;
+    });
+    _toastTimer = Timer(const Duration(milliseconds: 2600), () {
+      if (mounted) {
+        setState(() => _toastVisible = false);
+      }
+    });
+  }
+
+  void _applyPreset(
+    int profileCode,
+    int min,
+    int max,
+    int gov,
+    bool ged,
+    int powerPolicy,
+    String name,
+    IconData icon,
+    Color accent,
+  ) {
+    PeridotHaptics.confirm();
+    final bool willUncap = profileCode == 3;
+
+    setState(() {
+      _optimisticProfile = profileCode;
+      _optimisticMinFreq = profileCode == 0 ? null : min;
+      _optimisticMaxFreq = profileCode == 0 ? null : max;
+      _optimisticGov = null;
+      _optimisticGedBoost = false;
+      _optimisticPowerPolicy = null;
+      _optimisticUncap = willUncap;
+    });
+
+    _showGlassToast(
+      'GPU PRESET',
+      profileCode == 0
+          ? 'Requested saved OEM bounds'
+          : 'Requested $name ($min–$max MHz)',
+      icon,
+      accent,
+    );
+
+    PeridotBackend.instance.setPerformanceProfile(profileCode);
+
+    _interactionTimer?.cancel();
+    _interactionTimer = Timer(const Duration(milliseconds: 600), () {
+      PeridotBackend.instance.refresh();
+      if (mounted) {
+        setState(() {
+          _optimisticProfile = null;
+          _optimisticUncap = null;
+          _optimisticMinFreq = null;
+          _optimisticMaxFreq = null;
+          _optimisticGov = null;
+          _optimisticGedBoost = null;
+          _optimisticPowerPolicy = null;
+        });
+      }
+    });
+  }
+
+  void _applyPowerPolicy(int policyCode) {
+    PeridotHaptics.confirm();
+    setState(() => _optimisticPowerPolicy = policyCode);
+
+    final String name = policyCode == 1
+        ? 'Always-On (Zero Latency)'
+        : 'Coarse Demand (Dynamic)';
+    _showGlassToast(
+      'MALI POWER POLICY',
+      'Set Policy to $name',
+      policyCode == 1 ? Icons.bolt_rounded : Icons.eco_rounded,
+      policyCode == 1 ? const Color(0xFFFF5252) : const Color(0xFF67C2FF),
+    );
+
+    PeridotBackend.instance.setGpuPowerPolicy(policyCode);
+    Future<void>.delayed(const Duration(milliseconds: 500), () {
+      PeridotBackend.instance.refresh();
+      if (mounted) {
+        setState(() => _optimisticPowerPolicy = null);
+      }
+    });
+  }
+
+  void _applyGovernor(int govCode) {
+    PeridotHaptics.confirm();
+    setState(() => _optimisticGov = govCode);
+
+    const List<String> names = <String>[
+      'Simple On-Demand',
+      'Performance',
+      'Powersave',
+      'Userspace',
+      'OEM Stock',
+    ];
+    final String name = govCode >= 0 && govCode < names.length
+        ? names[govCode]
+        : 'Simple On-Demand';
+
+    _showGlassToast(
+      'DEVFREQ GOVERNOR',
+      'Switched Governor to $name',
+      Icons.tune_rounded,
+      const Color(0xFF67C2FF),
+    );
+
+    PeridotBackend.instance.setGpuDevfreqGovernor(govCode);
+    Future<void>.delayed(const Duration(milliseconds: 500), () {
+      PeridotBackend.instance.refresh();
+      if (mounted) {
+        setState(() => _optimisticGov = null);
+      }
+    });
+  }
+
+  void _resetDefault() {
+    PeridotHaptics.confirm();
+    setState(() {
+      _optimisticProfile = 0;
+      _optimisticUncap = false;
+      _optimisticMinFreq = 264;
+      _optimisticMaxFreq = null;
+      _optimisticMinFreq = null;
+      _optimisticGov = null;
+      _optimisticGedBoost = false;
+      _optimisticPowerPolicy = 0;
+    });
+
+    _showGlassToast(
+      'GPU RESET',
+      'Requested the saved OEM GPU frequency bounds',
+      Icons.restore_rounded,
+      const Color(0xFF67C2FF),
+    );
+
+    PeridotBackend.instance.setPerformanceProfile(0);
+    Future<void>.delayed(const Duration(milliseconds: 600), () {
+      PeridotBackend.instance.refresh();
+      if (mounted) {
+        setState(() {
+          _optimisticProfile = null;
+          _optimisticUncap = null;
+          _optimisticMinFreq = null;
+          _optimisticMaxFreq = null;
+          _optimisticGov = null;
+          _optimisticGedBoost = null;
+          _optimisticPowerPolicy = null;
+        });
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bool isDark = Theme.of(context).brightness == Brightness.dark;
+    final ColorScheme colors = Theme.of(context).colorScheme;
+
+    return _BackendSnapshotBuilder(
+      builder: (PeridotBackendSnapshot snapshot) {
+        final PeridotBackend backend = PeridotBackend.instance;
+
+        // Telemetry Slots
+        final int liveLoad = backend.extendedValue(45) >= 0
+            ? backend.extendedValue(45)
+            : 0;
+        final int liveCurFreq = backend.extendedValue(46) >= 0
+            ? backend.extendedValue(46)
+            : 0;
+        final int rawMinFreq = backend.extendedValue(47) >= 0
+            ? backend.extendedValue(47)
+            : 264;
+        final int rawMaxFreq = backend.extendedValue(48) >= 0
+            ? backend.extendedValue(48)
+            : 1150;
+        final int rawGovCode = backend.extendedValue(49) >= 0
+            ? backend.extendedValue(49)
+            : 0;
+        final int rawGedBoost = backend.extendedValue(50) >= 0
+            ? backend.extendedValue(50)
+            : 0;
+        final int thermalState = backend.extendedValue(51);
+        final int rawUncap = backend.extendedValue(52);
+        final int rawPowerPolicy = backend.extendedValue(59) >= 0
+            ? backend.extendedValue(59)
+            : 0;
+        final bool profileVerified =
+            _optimisticProfile == null && backend.extendedValue(13) == 1;
+
+        final int activeMinFreq = _optimisticMinFreq ?? rawMinFreq;
+        final int activeMaxFreq = _optimisticMaxFreq ?? rawMaxFreq;
+        final int activeGov = _optimisticGov ?? rawGovCode;
+        final bool activeGedBoost = _optimisticGedBoost ?? (rawGedBoost == 1);
+        final int activePowerPolicy = _optimisticPowerPolicy ?? rawPowerPolicy;
+        final bool isUncapped = _optimisticUncap ?? (rawUncap == 1);
+        final int activePerf =
+            _optimisticProfile ??
+            (snapshot.performanceProfile >= 0
+                ? snapshot.performanceProfile
+                : 0);
+        final int requestedMaxFreq = switch (activePerf) {
+          3 => 1150,
+          1 => 1150,
+          2 => 510,
+          _ => rawMaxFreq,
+        };
+        final bool hasHardwareReadback = _optimisticProfile == null;
+        final bool isThrottledByOs =
+            hasHardwareReadback &&
+            ((activePerf == 3 &&
+                    ((liveCurFreq > 0 && liveCurFreq < 1150) ||
+                        rawMaxFreq < requestedMaxFreq)) ||
+                ((activePerf == 1 || activePerf == 2) &&
+                    rawMaxFreq < requestedMaxFreq));
+        final bool isBeast =
+            activePerf == 3 ||
+            isUncapped ||
+            (activeMinFreq == 1150 && activeMaxFreq == 1150);
+        final bool isGaming = !isBeast && activePerf == 1;
+        final bool isBattery = !isBeast && activePerf == 2;
+        final Color mainColor = isBeast
+            ? const Color(0xFFFF5252)
+            : (isGaming
+                  ? const Color(0xFFFFB84D)
+                  : (isBattery
+                        ? const Color(0xFF35C997)
+                        : const Color(0xFF4EA8DE)));
+        final IconData modeIcon = isBeast
+            ? Icons.bolt_rounded
+            : (isGaming
+                  ? Icons.sports_esports_rounded
+                  : (isBattery
+                        ? Icons.energy_savings_leaf_rounded
+                        : Icons.balance_rounded));
+        final String modeSummary = isBeast
+            ? (liveCurFreq > 0
+                  ? 'Live: $liveCurFreq MHz · Fixed at 1.15 GHz'
+                  : 'Requested 1.15 GHz · effective limit differs')
+            : (isGaming
+                  ? (liveCurFreq > 0
+                        ? 'Live: $liveCurFreq MHz · Scaling freely to 1.15 GHz'
+                        : 'Full-range scaling · 264–1150 MHz')
+                  : (isBattery
+                        ? (liveCurFreq > 0
+                              ? 'Live: $liveCurFreq MHz · Efficiency cap at 510 MHz'
+                              : 'Efficiency range · 264–510 MHz')
+                        : (liveCurFreq > 0
+                              ? 'Live: $liveCurFreq MHz · OEM-managed behavior'
+                              : 'Vendor-managed clocks and power policy')));
+
+        return Stack(
+          children: <Widget>[
+            PeridotScrollPage(
+              children: <Widget>[
+                DetailHeader(
+                  title: 'Adreno GPU & KGSL',
+                  onBack: widget.onBack,
+                  trailing: PressScale(
+                    onTap: _resetDefault,
+                    child: Container(
+                      width: 38,
+                      height: 38,
+                      decoration: BoxDecoration(
+                        color: isDark
+                            ? Colors.white.withValues(alpha: 0.08)
+                            : Colors.black.withValues(alpha: 0.05),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.restore_rounded, size: 20),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Live KGSL telemetry and validated Adreno frequency profiles',
+                  style: TextStyle(
+                    fontSize: 13.5,
+                    color: colors.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 10),
+
+                // Top Glass Hero Banner
+                HeroCard(
+                  icon: modeIcon,
+                  accent: mainColor,
+                  title: 'Adreno 825 Graphics',
+                  subtitle: modeSummary,
+                ),
+                const SizedBox(height: 12),
+
+                // 1. HERO GPU DASHBOARD
+                _buildHeroDashboard(
+                  isDark: isDark,
+                  colors: colors,
+                  activeProfile: activePerf,
+                  liveLoad: liveLoad,
+                  liveCurFreq: liveCurFreq,
+                  minFreq: activeMinFreq,
+                  maxFreq: activeMaxFreq,
+                  isUncapped: isUncapped,
+                  isThrottledByOs: isThrottledByOs,
+                  profileVerified: profileVerified,
+                  oemManaged:
+                      snapshot.performanceProfile < 0 &&
+                      _optimisticProfile == null,
+                ),
+                const SizedBox(height: 12),
+
+                Text(
+                  'Requested: ${backend.extendedValue(128)}–${backend.extendedValue(129)} MHz · Effective: $rawMinFreq–$rawMaxFreq MHz',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: colors.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 12),
+
+                // 2. QUICK GPU PRESETS (4 TILES)
+                _buildPresetsGrid(
+                  isDark: isDark,
+                  colors: colors,
+                  activeProfile: activePerf,
+                  minFreq: activeMinFreq,
+                  maxFreq: activeMaxFreq,
+                  isUncapped: isUncapped,
+                  onSelect: _applyPreset,
+                ),
+                const SizedBox(height: 12),
+
+                // 3. MEDIATEK GED & GOVERNOR ENGINE
+                _buildGedAndGovernorCard(
+                  isDark: isDark,
+                  colors: colors,
+                  gedBoost: activeGedBoost,
+                  gedProfileEnabled: isBeast || isGaming,
+                  govCode: activeGov,
+                  powerPolicyCode: activePowerPolicy,
+                  onSelectGov: _applyGovernor,
+                  onSelectPowerPolicy: _applyPowerPolicy,
+                ),
+                const SizedBox(height: 12),
+
+                // 4. HARDWARE ARCHITECTURE & TELEMETRY
+                _buildHardwareDetailsCard(
+                  isDark: isDark,
+                  colors: colors,
+                  thermalState: thermalState,
+                ),
+              ],
+            ),
+
+            // FROSTED GLASS HUD TOAST (BOTTOM POSITIONED)
+            PeridotFeedbackOverlay(
+              tag: _toastTag,
+              message: _toastMessage,
+              icon: _toastIcon,
+              accent: _toastAccent,
+              visible: _toastVisible,
+              duration: PeridotInteractionSettings.motionDuration(260),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  // 1. HERO GPU DASHBOARD WIDGET
+  Widget _buildHeroDashboard({
+    required bool isDark,
+    required ColorScheme colors,
+    required int activeProfile,
+    required int liveLoad,
+    required int liveCurFreq,
+    required int minFreq,
+    required int maxFreq,
+    required bool isUncapped,
+    required bool isThrottledByOs,
+    required bool profileVerified,
+    required bool oemManaged,
+  }) {
+    final bool isBeast =
+        activeProfile == 3 ||
+        isUncapped ||
+        (minFreq == 1150 && maxFreq == 1150);
+    final bool isGaming = !isBeast && activeProfile == 1;
+    final bool isBattery = !isBeast && activeProfile == 2;
+
+    final Color mainColor = isBeast
+        ? const Color(0xFFFF5252)
+        : (isGaming
+              ? const Color(0xFFFFB84D)
+              : (isBattery
+                    ? const Color(0xFF35C997)
+                    : const Color(0xFF4EA8DE)));
+
+    final String activeDisplayClock = liveCurFreq > 0 ? '$liveCurFreq' : '—';
+
+    final String clockSubtext = isBeast
+        ? (isThrottledByOs
+              ? 'External clock limit detected · 1150 MHz remains the target'
+              : (profileVerified && liveCurFreq == 1150
+                    ? 'Fixed 1.15 GHz target verified from live hardware telemetry'
+                    : 'Fixed 1.15 GHz target requested · waiting for live verification'))
+        : (isGaming
+              ? (liveCurFreq > 0
+                    ? 'Dynamic Gaming Load ($liveCurFreq MHz · 1.15 GHz Ceiling)'
+                    : 'Standby Dynamic (264 – 1150 MHz · KGSL DVFS Active)')
+              : (isBattery
+                    ? (liveCurFreq > 0
+                          ? 'Live $liveCurFreq MHz · $minFreq–$maxFreq MHz Battery Range'
+                          : 'Waiting for battery-profile GPU telemetry')
+                    : (liveCurFreq > 0
+                          ? 'Active OEM OPP ($liveCurFreq MHz)'
+                          : 'Waiting for OEM GPU telemetry')));
+
+    final String badgeTitle = isBeast
+        ? '1.15 GHz FIXED TARGET'
+        : (isGaming
+              ? 'GAMING DYNAMIC BOOST'
+              : (isBattery ? 'BATTERY SAVER CLAMP' : 'DYNAMIC BALANCED'));
+
+    return SurfaceCard(
+      accent: mainColor,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          // Header Status Badge
+          Row(
+            children: <Widget>[
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: mainColor.withValues(alpha: 0.16),
+                  border: Border.all(
+                    color: mainColor.withValues(alpha: 0.35),
+                    width: 1.2,
+                  ),
+                ),
+                child: Icon(
+                  isBeast ? Icons.bolt_rounded : Icons.sports_esports_rounded,
+                  size: 22,
+                  color: mainColor,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      badgeTitle,
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0.3,
+                        color: mainColor,
+                      ),
+                    ),
+                    Text(
+                      'Snapdragon 8s Gen 4 · Adreno 825',
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        color: colors.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (maxFreq >= 1150)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 3,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFF5252).withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: const Color(0xFFFF5252).withValues(alpha: 0.3),
+                    ),
+                  ),
+                  child: const Text(
+                    '1.15 GHz Target',
+                    style: TextStyle(
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFFFF5252),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+
+          const SizedBox(height: 16),
+
+          // Big Clock Speed Readout
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
+            children: <Widget>[
+              Text(
+                activeDisplayClock,
+                style: TextStyle(
+                  fontSize: 42,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: -1.0,
+                  color: colors.onSurface,
+                ),
+              ),
+              const SizedBox(width: 6),
+              Text(
+                'MHz',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                  color: mainColor,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 2),
+          Text(
+            clockSubtext,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: colors.onSurfaceVariant,
+            ),
+          ),
+
+          const SizedBox(height: 16),
+
+          // Live GPU Load Bar
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: <Widget>[
+                  Text(
+                    'LIVE HARDWARE UTILIZATION',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 0.6,
+                      color: colors.onSurfaceVariant,
+                    ),
+                  ),
+                  Text(
+                    '$liveLoad%',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
+                      color: liveLoad > 80
+                          ? const Color(0xFFFF5252)
+                          : (liveLoad > 40
+                                ? const Color(0xFFFFB84D)
+                                : const Color(0xFF41C98A)),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(6),
+                child: LinearProgressIndicator(
+                  value: (liveLoad.clamp(0, 100)) / 100.0,
+                  minHeight: 8,
+                  backgroundColor: isDark
+                      ? Colors.white.withValues(alpha: 0.08)
+                      : Colors.black.withValues(alpha: 0.06),
+                  valueColor: AlwaysStoppedAnimation<Color>(
+                    liveLoad > 80
+                        ? const Color(0xFFFF5252)
+                        : (liveLoad > 40
+                              ? const Color(0xFFFFB84D)
+                              : const Color(0xFF41C98A)),
+                  ),
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 16),
+
+          // Telemetry Pills 2x2 Grid
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: _buildTelemetryPill(
+                  isDark: isDark,
+                  colors: colors,
+                  label: 'PROFILE WRITE',
+                  value: oemManaged
+                      ? 'OEM Managed'
+                      : isThrottledByOs
+                      ? 'Clock Below Target'
+                      : (profileVerified
+                            ? 'Bounds verified'
+                            : 'Requested · limits differ'),
+                  accent: oemManaged
+                      ? colors.onSurfaceVariant
+                      : isThrottledByOs || !profileVerified
+                      ? const Color(0xFFFFB84D)
+                      : const Color(0xFF41C98A),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _buildTelemetryPill(
+                  isDark: isDark,
+                  colors: colors,
+                  label: 'EFFECTIVE RANGE',
+                  value: '$minFreq – $maxFreq MHz',
+                  accent: mainColor,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTelemetryPill({
+    required bool isDark,
+    required ColorScheme colors,
+    required String label,
+    required String value,
+    required Color accent,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF171C28) : const Color(0xFFEEF2F9),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: isDark
+              ? Colors.white.withValues(alpha: 0.06)
+              : Colors.black.withValues(alpha: 0.04),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 9,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.4,
+              color: colors.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: accent,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // 2. QUICK GPU PRESETS (4 TILES)
+  Widget _buildPresetsGrid({
+    required bool isDark,
+    required ColorScheme colors,
+    required int activeProfile,
+    required int minFreq,
+    required int maxFreq,
+    required bool isUncapped,
+    required Function(
+      int profile,
+      int min,
+      int max,
+      int gov,
+      bool ged,
+      int powerPolicy,
+      String name,
+      IconData icon,
+      Color accent,
+    )
+    onSelect,
+  }) {
+    final bool isBeast =
+        activeProfile == 3 ||
+        (activeProfile < 0 && isUncapped && minFreq == 1150 && maxFreq == 1150);
+    final bool isGaming = activeProfile == 1;
+    final bool isBattery = activeProfile == 2;
+    final bool isStock = !isBeast && !isGaming && !isBattery;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Text(
+          'GPU PERFORMANCE MODES',
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 0.6,
+            color: colors.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: <Widget>[
+            Expanded(
+              child: _buildPresetCard(
+                isDark: isDark,
+                colors: colors,
+                title: 'Extreme Beast',
+                range: '1150 MHz requested · Thermal limits apply',
+                icon: Icons.bolt_rounded,
+                accent: const Color(0xFFFF5252),
+                isActive: isBeast,
+                onTap: () => onSelect(
+                  3,
+                  1150,
+                  1150,
+                  1,
+                  true,
+                  1,
+                  'Extreme Beast · Fixed 1.15 GHz',
+                  Icons.bolt_rounded,
+                  const Color(0xFFFF5252),
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _buildPresetCard(
+                isDark: isDark,
+                colors: colors,
+                title: 'Gaming Dynamic',
+                range: '264–1150 MHz · Full-range scaling',
+                icon: Icons.sports_esports_rounded,
+                accent: const Color(0xFFFFB84D),
+                isActive: isGaming,
+                onTap: () => onSelect(
+                  1,
+                  264,
+                  1150,
+                  0,
+                  true,
+                  1,
+                  'Gaming Dynamic · Full Range',
+                  Icons.sports_esports_rounded,
+                  const Color(0xFFFFB84D),
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: <Widget>[
+            Expanded(
+              child: _buildPresetCard(
+                isDark: isDark,
+                colors: colors,
+                title: 'Stock Balanced',
+                range: 'OEM range · Vendor managed',
+                icon: Icons.balance_rounded,
+                accent: const Color(0xFF67C2FF),
+                isActive: isStock,
+                onTap: () => onSelect(
+                  0,
+                  264,
+                  1150,
+                  4,
+                  false,
+                  0,
+                  'Stock Balanced · OEM Control',
+                  Icons.balance_rounded,
+                  const Color(0xFF67C2FF),
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _buildPresetCard(
+                isDark: isDark,
+                colors: colors,
+                title: 'Battery Saver',
+                range: '264–510 MHz · Efficiency cap',
+                icon: Icons.energy_savings_leaf_rounded,
+                accent: const Color(0xFF41C98A),
+                isActive: isBattery,
+                onTap: () => onSelect(
+                  2,
+                  264,
+                  510,
+                  2,
+                  false,
+                  0,
+                  'Battery Saver · 510 MHz Cap',
+                  Icons.energy_savings_leaf_rounded,
+                  const Color(0xFF41C98A),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPresetCard({
+    required bool isDark,
+    required ColorScheme colors,
+    required String title,
+    required String range,
+    required IconData icon,
+    required Color accent,
+    required bool isActive,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          padding: const EdgeInsets.all(14),
+          constraints: const BoxConstraints(minHeight: 108),
+          decoration: BoxDecoration(
+            color: isDark ? const Color(0xFF141822) : Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: isActive
+                  ? accent
+                  : (isDark
+                        ? Colors.white.withValues(alpha: 0.08)
+                        : Colors.black.withValues(alpha: 0.06)),
+              width: isActive ? 1.5 : 1.0,
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Row(
+                children: <Widget>[
+                  Icon(icon, size: 18, color: accent),
+                  const Spacer(),
+                  if (isActive)
+                    Icon(Icons.check_circle_rounded, size: 16, color: accent)
+                  else
+                    Icon(
+                      Icons.radio_button_unchecked_rounded,
+                      size: 16,
+                      color: colors.onSurfaceVariant,
+                    ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: colors.onSurface,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                range,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 10,
+                  height: 1.25,
+                  color: colors.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // 5. MEDIATEK GED & GOVERNOR ENGINE
+  Widget _buildGedAndGovernorCard({
+    required bool isDark,
+    required ColorScheme colors,
+    required bool gedBoost,
+    required bool gedProfileEnabled,
+    required int govCode,
+    required int powerPolicyCode,
+    required ValueChanged<int> onSelectGov,
+    required ValueChanged<int> onSelectPowerPolicy,
+  }) {
+    return const SurfaceCard(
+      child: _InfoBlock(
+        title: 'KGSL · msm-adreno-tz',
+        text: 'The kernel manages GPU DVFS. Profiles set validated frequency bounds. GED and Mali power policies are unavailable on this device.',
+      ),
+    );
+  }
+
+  // 6. HARDWARE ARCHITECTURE & TELEMETRY
+  Widget _buildHardwareDetailsCard({
+    required bool isDark,
+    required ColorScheme colors,
+    required int thermalState,
+  }) {
+    return SurfaceCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              Icon(
+                Icons.developer_board_rounded,
+                size: 18,
+                color: colors.primary,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                'Qualcomm Adreno Architecture',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w800,
+                  color: colors.onSurface,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          _buildDetailRow(colors, 'GPU Architecture', 'Adreno 825'),
+          _buildDetailRow(
+            colors,
+            'Active Core Mask',
+            'Not exposed by this backend',
+          ),
+          _buildDetailRow(
+            colors,
+            'Thermal Cooling Node',
+            'Kernel / vendor managed',
+          ),
+          _buildDetailRow(
+            colors,
+            'Thermal Controller State',
+            thermalState < 0
+                ? 'Unavailable'
+                : (thermalState == 0
+                      ? '0 (Peridot Essential unrestricted override)'
+                      : '$thermalState (vendor managed)'),
+          ),
+          _buildDetailRow(colors, 'GPU Driver', 'Qualcomm KGSL'),
+          _buildDetailRow(
+            colors,
+            'Hardware Frequencies',
+            '11 Clock Steps (264 MHz → 1.15 GHz)',
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDetailRow(ColorScheme colors, String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: <Widget>[
+          Text(
+            label,
+            style: TextStyle(fontSize: 11, color: colors.onSurfaceVariant),
+          ),
+          Flexible(
+            child: Text(
+              value,
+              textAlign: TextAlign.end,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: colors.onSurface,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class DiagnosticsScreen extends StatefulWidget {
+  const DiagnosticsScreen({required this.onBack, super.key});
+
+  final VoidCallback onBack;
+
+  @override
+  State<DiagnosticsScreen> createState() => _DiagnosticsScreenState();
+}
+
+class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
+  @override
+  void initState() {
+    super.initState();
+    PeridotBackend.instance.refresh();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    const Color accent = Color(0xFF74E6C6);
+
+    return _BackendSnapshotBuilder(
+      builder: (PeridotBackendSnapshot snapshot) {
+        final PeridotBackend backend = PeridotBackend.instance;
+        final int phase = backend.extendedValue(0);
+        final int perfSupported = backend.extendedValue(11);
+        final int perfVerified = backend.extendedValue(12);
+        final int perfOk = backend.extendedValue(13);
+        final int persistence = backend.extendedValue(26);
+        final int displayAck = backend.extendedValue(28);
+        final int touchAck = backend.extendedValue(29);
+
+        final List<int> drifts = <int>[
+          backend.extendedValue(14),
+          backend.extendedValue(15),
+          backend.extendedValue(16),
+          backend.extendedValue(17),
+          backend.extendedValue(18),
+        ];
+
+        final List<int> knownDrifts = drifts
+            .where((int value) => value >= 0)
+            .toList();
+
+        final bool noKnownDrift =
+            knownDrifts.isEmpty || knownDrifts.every((int value) => value == 0);
+
+        return PeridotScrollPage(
+          children: <Widget>[
+            DetailHeader(title: 'Diagnostics', onBack: widget.onBack),
+            const SizedBox(height: 4),
+            Text(
+              'Real-time hardware status and system health checks',
+              style: TextStyle(
+                fontSize: 13.5,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 10),
+            HeroCard(
+              icon: Icons.monitor_heart_rounded,
+              accent: accent,
+              title: snapshot.ready && !snapshot.serviceEnabled
+                  ? 'Peridot Essential Disabled'
+                  : snapshot.ready
+                  ? 'System Health Normal'
+                  : snapshot.connection == PeridotConnectionState.connecting
+                  ? 'Connecting to System Service'
+                  : 'System Service Unavailable',
+              subtitle: snapshot.ready && !snapshot.serviceEnabled
+                  ? 'Hardware control is paused; enable Peridot Essential in Settings'
+                  : phase == 16
+                  ? 'All hardware controllers and telemetry streams active'
+                  : 'Waiting for system background service',
+            ),
+            const SizedBox(height: 9),
+            SurfaceCard(
+              child: Column(
+                children: <Widget>[
+                  _DiagnosticRow(
+                    label: 'Hardware Controller',
+                    good: snapshot.controlsAvailable && phase == 16,
+                    detail: snapshot.ready && !snapshot.serviceEnabled
+                        ? 'Disabled'
+                        : snapshot.ready
+                        ? 'Online & Ready'
+                        : snapshot.serviceStatusLabel,
+                  ),
+                  const Divider(height: 14),
+                  _DiagnosticRow(
+                    label: 'Touch Controller',
+                    good: snapshot.touchHal == 1,
+                    detail: snapshot.touchHal == 1 ? 'Active' : 'Unavailable',
+                  ),
+                  const Divider(height: 14),
+                  _DiagnosticRow(
+                    label: 'Display Engine',
+                    good: snapshot.displayHal == 1,
+                    detail: snapshot.displayHal == 1 ? 'Active' : 'Unavailable',
+                  ),
+                  const Divider(height: 14),
+                  _DiagnosticRow(
+                    label: 'Saved Preferences',
+                    good: persistence == 1,
+                    detail: persistence == 1 ? 'Loaded' : 'Not loaded',
+                  ),
+                  const Divider(height: 14),
+                  _DiagnosticRow(
+                    label: 'System Optimizations',
+                    good:
+                        perfOk == 1 &&
+                        perfSupported > 0 &&
+                        perfSupported == perfVerified,
+                    detail: perfSupported >= 0
+                        ? '$perfVerified / $perfSupported active'
+                        : 'Checking...',
+                  ),
+                  const Divider(height: 14),
+                  _DiagnosticRow(
+                    label: 'Hardware Sync Check',
+                    good: noKnownDrift,
+                    detail: noKnownDrift ? 'In sync' : 'Adjusting...',
+                  ),
+                  const Divider(height: 14),
+                  _DiagnosticRow(
+                    label: 'Display Bridge',
+                    good: displayAck == 1,
+                    detail: displayAck == 1
+                        ? 'Ready'
+                        : displayAck == 0
+                        ? 'Failed'
+                        : 'Active',
+                  ),
+                  const Divider(height: 14),
+                  _DiagnosticRow(
+                    label: 'Touch Bridge',
+                    good: touchAck == 1,
+                    detail: touchAck == 1
+                        ? 'Ready'
+                        : touchAck == 0
+                        ? 'Failed'
+                        : 'Active',
+                  ),
+                ],
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _ExpertSliderRow extends StatefulWidget {
+  const _ExpertSliderRow({
+    required this.title,
+    required this.value,
+    required this.min,
+    required this.max,
+    required this.defaultValue,
+    required this.enabled,
+    required this.onChanged,
+    this.activeColor,
+  });
+
+  final String title;
+  final int value;
+  final int min;
+  final int max;
+  final int defaultValue;
+  final bool enabled;
+  final bool Function(int) onChanged;
+  final Color? activeColor;
+
+  @override
+  State<_ExpertSliderRow> createState() => _ExpertSliderRowState();
+}
+
+class _ExpertSliderRowState extends State<_ExpertSliderRow> {
+  late double _preview;
+  bool _dragging = false;
+
+  int _lastSent = 0;
+  int _lastAccepted = 0;
+  int? _lastHapticBucket;
+
+  DateTime _lastSendAt = DateTime.fromMillisecondsSinceEpoch(0);
+
+  int _hapticBucket(int value) {
+    final int span = widget.max - widget.min;
+
+    // About 18 meaningful tactile steps across any channel range.
+    // This keeps the slider tactile without buzzing on every pixel.
+    final int stride = span <= 18 ? 1 : (span / 18).ceil();
+
+    return (value - widget.min) ~/ stride;
+  }
+
+  int _safeValue() {
+    if (widget.value >= widget.min && widget.value <= widget.max) {
+      return widget.value;
+    }
+
+    return widget.defaultValue;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    final int value = _safeValue();
+    _preview = value.toDouble();
+    _lastSent = value;
+    _lastAccepted = value;
+  }
+
+  @override
+  void didUpdateWidget(covariant _ExpertSliderRow oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    if (!_dragging &&
+        (oldWidget.value != widget.value ||
+            oldWidget.min != widget.min ||
+            oldWidget.max != widget.max)) {
+      final int value = _safeValue();
+      _preview = value.toDouble();
+      _lastSent = value;
+      _lastAccepted = value;
+    }
+  }
+
+  void _tryLiveApply(int value, {bool force = false}) {
+    if (value == _lastSent) {
+      return;
+    }
+
+    final DateTime now = DateTime.now();
+
+    if (!force && now.difference(_lastSendAt).inMilliseconds < 80) {
+      return;
+    }
+
+    _lastSendAt = now;
+    _lastSent = value;
+
+    final bool accepted = widget.onChanged(value);
+
+    if (accepted) {
+      _lastAccepted = value;
+    }
+  }
+
+  void _start(double value) {
+    final int rounded = value.round();
+
+    setState(() {
+      _dragging = true;
+      _preview = value;
+    });
+
+    _lastSent = rounded;
+    _lastAccepted = rounded;
+    _lastHapticBucket = _hapticBucket(rounded);
+    _lastSendAt = DateTime.now();
+
+    PeridotHaptics.segment();
+  }
+
+  void _drag(double value) {
+    setState(() {
+      // Local visual/value update happens on every Flutter slider event.
+      // The thumb and numeric label therefore follow the finger directly.
+      _preview = value;
+    });
+
+    final int rounded = value.round().clamp(widget.min, widget.max);
+
+    final int bucket = _hapticBucket(rounded);
+
+    if (_lastHapticBucket != bucket) {
+      _lastHapticBucket = bucket;
+      PeridotHaptics.frequentSegment();
+    }
+
+    // Real DisplayFeature HAL updates continue while dragging,
+    // but are rate-limited so Binder work cannot make the thumb sticky.
+    _tryLiveApply(rounded);
+  }
+
+  void _finish(double value) {
+    final int rounded = value.round().clamp(widget.min, widget.max);
+
+    _tryLiveApply(rounded, force: true);
+
+    setState(() {
+      _dragging = false;
+      _preview = rounded.toDouble();
+    });
+
+    _lastHapticBucket = null;
+
+    if (_lastAccepted == rounded) {
+      PeridotHaptics.confirm();
+    } else {
+      PeridotHaptics.reject();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme colors = Theme.of(context).colorScheme;
+    final Color trackColor = widget.activeColor ?? colors.primary;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: Text(
+                  widget.title,
+                  style: const TextStyle(
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                decoration: BoxDecoration(
+                  color: trackColor.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  '${_preview.round()}',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w900,
+                    color: trackColor,
+                    fontFamily: 'monospace',
+                  ),
+                ),
+              ),
+            ],
+          ),
+          RepaintBoundary(
+            child: SliderTheme(
+              data: SliderTheme.of(context).copyWith(
+                activeTrackColor: trackColor,
+                thumbColor: trackColor,
+                inactiveTrackColor: trackColor.withValues(alpha: 0.18),
+                overlayColor: trackColor.withValues(alpha: 0.14),
+                trackHeight: 3.5,
+                thumbShape: const RoundSliderThumbShape(
+                  enabledThumbRadius: 6.5,
+                ),
+              ),
+              child: Slider(
+                value: _preview.clamp(
+                  widget.min.toDouble(),
+                  widget.max.toDouble(),
+                ),
+                min: widget.min.toDouble(),
+                max: widget.max.toDouble(),
+                onChangeStart: widget.enabled ? _start : null,
+                onChanged: widget.enabled ? _drag : null,
+                onChangeEnd: widget.enabled ? _finish : null,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SliderCard extends StatefulWidget {
+  const _SliderCard({
+    required this.title,
+    required this.subtitle,
+    required this.value,
+    required this.min,
+    required this.max,
+    required this.defaultValue,
+    required this.enabled,
+    required this.onChanged,
+  });
+
+  final String title;
+  final String subtitle;
+  final int value;
+  final int min;
+  final int max;
+  final int defaultValue;
+  final bool enabled;
+  final bool Function(int) onChanged;
+
+  @override
+  State<_SliderCard> createState() => _SliderCardState();
+}
+
+class _SliderCardState extends State<_SliderCard> {
+  late double _preview;
+  bool _dragging = false;
+  int? _lastHapticBucket;
+
+  int _safeValue() {
+    if (widget.value >= widget.min && widget.value <= widget.max) {
+      return widget.value;
+    }
+    return widget.defaultValue;
+  }
+
+  int _hapticBucket(double value) {
+    final int span = widget.max - widget.min;
+    final int stride = span <= 24 ? 1 : (span / 24).ceil();
+    return (value.round() - widget.min) ~/ stride;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _preview = _safeValue().toDouble();
+  }
+
+  @override
+  void didUpdateWidget(covariant _SliderCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!_dragging &&
+        (oldWidget.value != widget.value ||
+            oldWidget.min != widget.min ||
+            oldWidget.max != widget.max)) {
+      _preview = _safeValue().toDouble();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme colors = Theme.of(context).colorScheme;
+    final bool known = widget.value >= widget.min && widget.value <= widget.max;
+
+    return SurfaceCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      widget.title,
+                      style: const TextStyle(
+                        fontSize: 14.5,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      widget.subtitle,
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        color: colors.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Text(
+                known ? '${_preview.round()}' : '—',
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+          Slider(
+            value: _preview.clamp(widget.min.toDouble(), widget.max.toDouble()),
+            min: widget.min.toDouble(),
+            max: widget.max.toDouble(),
+            divisions: widget.max - widget.min,
+            onChangeStart: widget.enabled
+                ? (double value) {
+                    _lastHapticBucket = _hapticBucket(value);
+                    setState(() => _dragging = true);
+                  }
+                : null,
+            onChanged: widget.enabled
+                ? (double value) {
+                    final int bucket = _hapticBucket(value);
+                    if (_lastHapticBucket != bucket) {
+                      _lastHapticBucket = bucket;
+                      PeridotHaptics.frequentSegment();
+                    }
+                    setState(() => _preview = value);
+                  }
+                : null,
+            onChangeEnd: widget.enabled
+                ? (double value) {
+                    final int selected = value.round();
+                    final bool accepted = widget.onChanged(selected);
+
+                    if (accepted) {
+                      PeridotHaptics.segment();
+                    } else {
+                      PeridotHaptics.reject();
+                    }
+
+                    setState(() {
+                      _preview = selected.toDouble();
+                      _dragging = false;
+                      _lastHapticBucket = null;
+                    });
+                  }
+                : null,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PersistenceStatusRow extends StatelessWidget {
+  const _PersistenceStatusRow({required this.label, required this.state});
+
+  final String label;
+  final int state;
+
+  @override
+  Widget build(BuildContext context) {
+    return _DiagnosticRow(
+      label: label,
+      good: state == 0,
+      detail: state == 0
+          ? 'Verified'
+          : state == 1
+          ? 'Vendor drift detected · guard will reassert'
+          : 'No persisted selection yet',
+    );
+  }
+}
+
+class _BackendSnapshotBuilder extends StatelessWidget {
+  const _BackendSnapshotBuilder({required this.builder});
+  final Widget Function(PeridotBackendSnapshot snapshot) builder;
+
+  @override
+  Widget build(BuildContext context) {
+    return PeridotMotionStreamBuilder<PeridotBackendSnapshot>(
+      stream: PeridotBackend.instance.snapshots,
+      readLatest: () => PeridotBackend.instance.latest,
+      builder: builder,
+    );
+  }
+}
+
+class _InfoBlock extends StatelessWidget {
+  const _InfoBlock({required this.title, required this.text});
+  final String title;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Text(
+          title,
+          style: const TextStyle(fontSize: 15.5, fontWeight: FontWeight.w700),
+        ),
+        const SizedBox(height: 5),
+        Text(
+          text,
+          style: TextStyle(
+            fontSize: 12.5,
+            height: 1.35,
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _SwitchCard extends StatelessWidget {
+  const _SwitchCard({
+    required this.icon,
+    required this.accent,
+    required this.title,
+    required this.subtitle,
+    required this.value,
+    required this.enabled,
+    required this.stateKnown,
+    this.unknownLabel = 'SESSION',
+    required this.onChanged,
+  });
+
+  final IconData icon;
+  final Color accent;
+  final String title;
+  final String subtitle;
+  final bool value;
+  final bool enabled;
+  final bool stateKnown;
+  final String unknownLabel;
+  final bool Function(bool) onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme colors = Theme.of(context).colorScheme;
+
+    return SurfaceCard(
+      padding: const EdgeInsets.fromLTRB(13, 12, 8, 12),
+      child: Row(
+        children: <Widget>[
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 220),
+            width: 43,
+            height: 43,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: <Color>[
+                  accent.withValues(alpha: value ? 0.24 : 0.13),
+                  accent.withValues(alpha: 0.055),
+                ],
+              ),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: accent.withValues(alpha: value ? 0.27 : 0.13),
+              ),
+            ),
+            child: Icon(icon, color: accent, size: 21),
+          ),
+          const SizedBox(width: 11),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Row(
+                  children: <Widget>[
+                    Flexible(
+                      child: Text(
+                        title,
+                        style: const TextStyle(
+                          fontSize: 14.5,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                    if (!stateKnown) ...<Widget>[
+                      const SizedBox(width: 6),
+                      StatusPill(
+                        label: unknownLabel,
+                        accent: colors.onSurfaceVariant,
+                      ),
+                    ],
+                  ],
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  subtitle,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    height: 1.2,
+                    fontSize: 11.5,
+                    color: colors.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Switch.adaptive(
+            value: value,
+            onChanged: enabled
+                ? (bool v) {
+                    final bool accepted = onChanged(v);
+                    if (accepted) {
+                      PeridotHaptics.toggle(v);
+                    } else {
+                      PeridotHaptics.reject();
+                    }
+                  }
+                : null,
+            activeThumbColor: accent,
+            activeTrackColor: accent.withValues(alpha: 0.34),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ChoiceOption {
+  const _ChoiceOption(this.code, this.label);
+  final int code;
+  final String label;
+}
+
+class _ChoiceCard extends StatelessWidget {
+  const _ChoiceCard({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.accent,
+    required this.selectedCode,
+    required this.options,
+    required this.enabled,
+    required this.onSelected,
+  });
+
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final Color accent;
+  final int selectedCode;
+  final List<_ChoiceOption> options;
+  final bool enabled;
+  final bool Function(int) onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme colors = Theme.of(context).colorScheme;
+    _ChoiceOption? selected;
+
+    for (final _ChoiceOption option in options) {
+      if (option.code == selectedCode) {
+        selected = option;
+      }
+    }
+
+    return SurfaceCard(
+      padding: const EdgeInsets.fromLTRB(13, 12, 12, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              IconTile(icon: icon, accent: accent, size: 42),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 14.5,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      style: TextStyle(
+                        fontSize: 11.2,
+                        color: colors.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              StatusPill(
+                label: selected?.label ?? 'UNSET',
+                accent: selected == null ? colors.onSurfaceVariant : accent,
+              ),
+            ],
+          ),
+          const SizedBox(height: 11),
+          Wrap(
+            spacing: 7,
+            runSpacing: 7,
+            children: <Widget>[
+              for (final _ChoiceOption option in options)
+                ChoiceChip(
+                  label: Text(option.label),
+                  selected: option.code == selectedCode,
+                  onSelected: enabled
+                      ? (bool selected) {
+                          if (selected) {
+                            final bool accepted = onSelected(option.code);
+                            if (accepted) {
+                              PeridotHaptics.segment();
+                            } else {
+                              PeridotHaptics.reject();
+                            }
+                          }
+                        }
+                      : null,
+                  showCheckmark: false,
+                  visualDensity: VisualDensity.compact,
+                  selectedColor: accent.withValues(alpha: 0.15),
+                  backgroundColor: colors.surfaceContainer.withValues(
+                    alpha: 0.46,
+                  ),
+                  side: BorderSide(
+                    color: option.code == selectedCode
+                        ? accent.withValues(alpha: 0.38)
+                        : colors.outline.withValues(alpha: 0.56),
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CpuStatusRow extends StatelessWidget {
+  const _CpuStatusRow({
+    required this.cpu,
+    required this.online,
+    required this.frequency,
+    required this.toggleEnabled,
+    required this.onChanged,
+    this.accent = const Color(0xFF67C2FF),
+    this.clusterTag,
+  });
+
+  final int cpu;
+  final bool online;
+  final String frequency;
+  final bool toggleEnabled;
+  final ValueChanged<bool>? onChanged;
+  final Color accent;
+  final String? clusterTag;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        children: <Widget>[
+          Container(
+            width: 36,
+            height: 36,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: accent.withValues(alpha: online ? 0.14 : 0.06),
+              borderRadius: BorderRadius.circular(11),
+              border: Border.all(
+                color: accent.withValues(alpha: online ? 0.28 : 0.12),
+              ),
+            ),
+            child: Text(
+              '$cpu',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w900,
+                color: online ? accent : Colors.grey,
+              ),
+            ),
+          ),
+          const SizedBox(width: 11),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Wrap(
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: 6,
+                  runSpacing: 4,
+                  children: <Widget>[
+                    Text(
+                      'CPU$cpu',
+                      style: const TextStyle(
+                        fontSize: 13.8,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    if (clusterTag != null) ...<Widget>[
+                      const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 5,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: accent.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          clusterTag!,
+                          style: TextStyle(
+                            fontSize: 8.5,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 0.4,
+                            color: accent,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  cpu == 0 ? '$frequency · pinned master' : frequency,
+                  style: TextStyle(
+                    fontSize: 11.2,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          StatusPill(
+            label: online ? 'ONLINE' : 'OFFLINE',
+            accent: online ? const Color(0xFF41C98A) : const Color(0xFFFF7A7A),
+          ),
+          const SizedBox(width: 4),
+          Switch.adaptive(
+            value: online,
+            onChanged: toggleEnabled
+                ? PeridotHaptics.toggleCallback(onChanged)
+                : null,
+            activeThumbColor: accent,
+            activeTrackColor: accent.withValues(alpha: 0.35),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DiagnosticRow extends StatelessWidget {
+  const _DiagnosticRow({
+    required this.label,
+    required this.good,
+    required this.detail,
+  });
+  final String label;
+  final bool good;
+  final String detail;
+  @override
+  Widget build(BuildContext context) => Row(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Padding(
+        padding: const EdgeInsets.only(top: 2),
+        child: Icon(
+          good ? Icons.check_circle_rounded : Icons.error_outline_rounded,
+          size: 18,
+          color: good ? const Color(0xFF41C98A) : const Color(0xFFFFB84D),
+        ),
+      ),
+      const SizedBox(width: 10),
+      Expanded(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              label,
+              style: const TextStyle(
+                fontSize: 12,
+                height: 1.35,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 3),
+            Text(
+              detail,
+              softWrap: true,
+              style: TextStyle(
+                fontSize: 11.5,
+                height: 1.45,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+      ),
+    ],
+  );
+}
+
+class DetailScreen extends StatelessWidget {
+  const DetailScreen({
+    required this.screen,
+    required this.icon,
+    required this.accent,
+    required this.subtitle,
+    required this.onBack,
+    super.key,
+  });
+
+  final PeridotScreen screen;
+  final IconData icon;
+  final Color accent;
+  final String subtitle;
+  final VoidCallback onBack;
+
+  @override
+  Widget build(BuildContext context) {
+    return PeridotScrollPage(
+      children: <Widget>[
+        DetailHeader(title: screen.title, onBack: onBack),
+        const SizedBox(height: 9),
+        HeroCard(
+          icon: icon,
+          accent: accent,
+          title: screen.title,
+          subtitle: subtitle,
+        ),
+        const SizedBox(height: 9),
+        const SurfaceCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Text(
+                'Native backend migration',
+                style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+              ),
+              SizedBox(height: 6),
+              Text(
+                'UI structure is active. Hardware controls remain intentionally disconnected until their Rust daemon/backend path is migrated.',
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class PeridotScrollPage extends StatefulWidget {
+  const PeridotScrollPage({
+    this.children = const <Widget>[],
+    this.slivers,
+    this.header,
+    this.topPadding = 10,
+    super.key,
+  });
+
+  final List<Widget> children;
+  final List<Widget>? slivers;
+  final Widget? header;
+  final double topPadding;
+
+  @override
+  State<PeridotScrollPage> createState() => _PeridotScrollPageState();
+}
+
+class _PeridotScrollPageState extends State<PeridotScrollPage> {
+  final ScrollController _scrollController = ScrollController();
+  final ValueNotifier<double> _scrollPixels = ValueNotifier<double>(0);
+  final ValueNotifier<double> _scrollVelocity = ValueNotifier<double>(0);
+  final Stopwatch _scrollClock = Stopwatch()..start();
+  int _lastScrollMicros = 0;
+  double _lastScrollOffset = 0;
+  bool _edgeLatched = false;
+
+  static const double _peridotPhysicalWidth = 1220;
+  static const double _peridotPhysicalHeight = 2712;
+  static const double _peridotPhysicalCutoutTop = 130;
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollController.addListener(_updateScrollPixels);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      // PageStorage can restore an offset without issuing a scroll event.
+      if (mounted && _scrollController.hasClients) {
+        _scrollController.position.isScrollingNotifier.addListener(
+          _scrollingChanged,
+        );
+        _updateScrollPixels();
+      }
+    });
+  }
+
+  void _scrollingChanged() {
+    if (_scrollController.hasClients &&
+        !_scrollController.position.isScrollingNotifier.value) {
+      _scrollVelocity.value = 0;
+    }
+  }
+
+  @override
+  void dispose() {
+    if (_scrollController.hasClients)
+      _scrollController.position.isScrollingNotifier.removeListener(
+        _scrollingChanged,
+      );
+    _scrollController.dispose();
+    _scrollPixels.dispose();
+    _scrollVelocity.dispose();
+    _scrollClock.stop();
+    super.dispose();
+  }
+
+  double _resolvedTopInset(BuildContext context) {
+    final MediaQueryData media = MediaQuery.of(context);
+
+    final double frameworkInset = media.viewPadding.top > media.padding.top
+        ? media.viewPadding.top
+        : media.padding.top;
+
+    if (frameworkInset > 0.5) {
+      return frameworkInset;
+    }
+
+    final double dpr = media.devicePixelRatio;
+    final double physicalWidth = media.size.width * dpr;
+    final double physicalHeight = media.size.height * dpr;
+
+    final bool peridotPortrait =
+        (physicalWidth - _peridotPhysicalWidth).abs() < 8 &&
+        (physicalHeight - _peridotPhysicalHeight).abs() < 8;
+
+    final bool peridotLandscape =
+        (physicalWidth - _peridotPhysicalHeight).abs() < 8 &&
+        (physicalHeight - _peridotPhysicalWidth).abs() < 8;
+
+    if ((peridotPortrait || peridotLandscape) && dpr > 0) {
+      return _peridotPhysicalCutoutTop / dpr;
+    }
+
+    return 24;
+  }
+
+  Widget? _firstHeader() {
+    if (widget.header != null) {
+      return widget.header;
+    }
+
+    if (widget.children.isEmpty) {
+      return null;
+    }
+
+    final Widget first = widget.children.first;
+
+    if (first is PeridotHeader || first is DetailHeader) {
+      return first;
+    }
+
+    return null;
+  }
+
+  String? _titleOf(Widget? header) {
+    if (header is PeridotHeader) {
+      return header.title;
+    }
+
+    if (header is DetailHeader) {
+      return header.title;
+    }
+
+    return null;
+  }
+
+  double _titleStartFont(Widget? header) {
+    if (header is PeridotHeader) {
+      return header.large ? 28 : 24;
+    }
+
+    if (header is DetailHeader) {
+      return 23;
+    }
+
+    return 18;
+  }
+
+  double _titleStartX(Widget? header) {
+    if (header is DetailHeader) {
+      return 68;
+    }
+
+    return 16;
+  }
+
+  VoidCallback? _backOf(Widget? header) {
+    if (header is DetailHeader) {
+      return header.onBack;
+    }
+
+    return null;
+  }
+
+  Widget _headerPlaceholder(Widget? header) {
+    if (header is PeridotHeader) {
+      final double titleHeight = header.large ? 38 : 32;
+
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          SizedBox(height: titleHeight),
+          const SizedBox(height: 6),
+          Text(
+            header.subtitle,
+            style: TextStyle(
+              fontSize: 13.5,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      );
+    }
+
+    if (header is DetailHeader) {
+      return const SizedBox(height: 44);
+    }
+
+    return const SizedBox.shrink();
+  }
+
+  void _updateScrollPixels() {
+    if (!_scrollController.hasClients) return;
+    final position = _scrollController.position;
+    final now = _scrollClock.elapsedMicroseconds;
+    final dt = now - _lastScrollMicros;
+    if (_lastScrollMicros > 0 && dt > 0) {
+      _scrollVelocity.value =
+          ((position.pixels - _lastScrollOffset) * 1000000 / dt).clamp(
+            -6500.0,
+            6500.0,
+          );
+    }
+    _lastScrollMicros = now;
+    _lastScrollOffset = position.pixels;
+    final outside =
+        position.pixels < position.minScrollExtent - 14 ||
+        position.pixels > position.maxScrollExtent + 14;
+    if (outside && !_edgeLatched) PeridotHaptics.frequentSegment();
+    _edgeLatched = outside;
+    final double next = _scrollController.offset.clamp(0.0, 96.0).toDouble();
+
+    if ((_scrollPixels.value - next).abs() > 0.10) {
+      _scrollPixels.value = next;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final double safeTop = _resolvedTopInset(context);
+    final Widget? header = _firstHeader();
+
+    final Widget scrollChild;
+    if (widget.slivers != null) {
+      scrollChild = CustomScrollView(
+        controller: _scrollController,
+        primary: false,
+        scrollCacheExtent: ScrollCacheExtent.pixels(
+          PeridotMotionViewportScope.scrollCacheExtentOf(context),
+        ),
+        physics: const PeridotScrollPhysics(
+          parent: AlwaysScrollableScrollPhysics(),
+        ),
+        slivers: <Widget>[
+          SliverPadding(
+            padding: EdgeInsets.fromLTRB(
+              16,
+              safeTop + widget.topPadding,
+              16,
+              0,
+            ),
+            sliver: SliverToBoxAdapter(
+              child: header == null
+                  ? const SizedBox.shrink()
+                  : _headerPlaceholder(header),
+            ),
+          ),
+          ...widget.slivers!,
+          SliverPadding(
+            padding: EdgeInsets.only(
+              bottom: PeridotBottomLayout.contentClearance(context),
+            ),
+          ),
+        ],
+      );
+    } else {
+      final List<Widget> effectiveChildren = header == null
+          ? widget.children
+          : <Widget>[_headerPlaceholder(header), ...widget.children.skip(1)];
+
+      scrollChild = ListView(
+        controller: _scrollController,
+        primary: false,
+        scrollCacheExtent: ScrollCacheExtent.pixels(
+          PeridotMotionViewportScope.scrollCacheExtentOf(context),
+        ),
+        physics: const PeridotScrollPhysics(
+          parent: AlwaysScrollableScrollPhysics(),
+        ),
+        padding: EdgeInsets.fromLTRB(
+          16,
+          safeTop + widget.topPadding,
+          16,
+          PeridotBottomLayout.contentClearance(context),
+        ),
+        // One page transition is enough. Replaying a spring on every card adds
+        // independent opacity layers and makes Back look unsettled.
+        children: effectiveChildren,
+      );
+    }
+
+    final Widget motionChild = PeridotScrollMotionScope(
+      velocity: _scrollVelocity,
+      child: scrollChild,
+    );
+    return Stack(
+      fit: StackFit.expand,
+      children: <Widget>[
+        header == null
+            ? motionChild
+            : ValueListenableBuilder<double>(
+                valueListenable: _scrollPixels,
+                child: motionChild,
+                builder: (BuildContext context, double pixels, Widget? child) {
+                  final double morph = Curves.easeInOutCubic.transform(
+                    (pixels / 58).clamp(0.0, 1.0).toDouble(),
+                  );
+                  return PeridotHeaderHitRegion(
+                    key: const ValueKey<String>('peridot-header-content-clip'),
+                    top:
+                        safeTop +
+                        (ui.lerpDouble(widget.topPadding + 44, 42, morph) ??
+                            42),
+                    child: child,
+                  );
+                },
+              ),
+        if (header != null)
+          Positioned(
+            left: 0,
+            top: 0,
+            right: 0,
+            height: safeTop + 58,
+            child: ValueListenableBuilder<double>(
+              valueListenable: _scrollPixels,
+              builder: (BuildContext context, double pixels, Widget? child) {
+                return _PeridotChromaticGlassMorph(
+                  scrollPixels: pixels,
+                  safeTop: safeTop,
+                  title: _titleOf(header)!,
+                  startFont: _titleStartFont(header),
+                  startX: _titleStartX(header),
+                  topPadding: widget.topPadding,
+                  onBack: _backOf(header),
+                );
+              },
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+// Let the header sample scrolling pixels for its glass, while keeping covered
+// controls out of touch and accessibility navigation.
+class PeridotHeaderHitRegion extends SingleChildRenderObjectWidget {
+  const PeridotHeaderHitRegion({
+    required this.top,
+    required super.child,
+    super.key,
+  });
+  final double top;
+  @override
+  RenderObject createRenderObject(BuildContext context) =>
+      _PeridotHeaderHitBox(top);
+  @override
+  void updateRenderObject(
+    BuildContext context,
+    covariant RenderObject renderObject,
+  ) => (renderObject as _PeridotHeaderHitBox).top = top;
+}
+
+/// Paint underneath the frosted header, but never let a hidden control receive
+/// the header's taps. Clipping the paint here would remove the blur's backdrop.
+class _PeridotHeaderHitBox extends RenderProxyBox {
+  _PeridotHeaderHitBox(this._top);
+  double _top;
+  double get top => _top;
+  set top(double value) {
+    if (_top == value) return;
+    _top = value;
+    markNeedsSemanticsUpdate();
+  }
+
+  @override
+  Rect? describeSemanticsClip(RenderObject? child) =>
+      Rect.fromLTRB(0, top.clamp(0.0, size.height), size.width, size.height);
+  @override
+  bool hitTest(BoxHitTestResult result, {required Offset position}) =>
+      position.dy >= top && super.hitTest(result, position: position);
+}
+
+class _PeridotChromaticGlassMorph extends StatelessWidget {
+  const _PeridotChromaticGlassMorph({
+    required this.scrollPixels,
+    required this.safeTop,
+    required this.title,
+    required this.startFont,
+    required this.startX,
+    required this.topPadding,
+    required this.onBack,
+  });
+
+  final double scrollPixels;
+  final double safeTop;
+  final String title;
+  final double startFont;
+  final double startX;
+  final double topPadding;
+  final VoidCallback? onBack;
+
+  double _clamp01(double value) => value.clamp(0.0, 1.0).toDouble();
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme colors = theme.colorScheme;
+    final bool dark = theme.brightness == Brightness.dark;
+
+    final double rawMorph = _clamp01(scrollPixels / 58.0);
+    final double morph = Curves.easeInOutCubic.transform(rawMorph);
+
+    final double rawGlass = _clamp01((scrollPixels - 7) / 39.0);
+    final double glass = Curves.easeOutCubic.transform(rawGlass);
+
+    final double titleFont = ui.lerpDouble(startFont, 17.5, morph) ?? 17.5;
+
+    final double titleX =
+        ui.lerpDouble(startX, onBack == null ? 14 : 52, morph) ?? startX;
+
+    final double titleY =
+        ui.lerpDouble(safeTop + topPadding, safeTop + 6, morph) ??
+        (safeTop + topPadding);
+
+    final double titleWidthRight = onBack == null ? 14 : 12;
+
+    // Preserve frost without the old high-radius sampling cost on each frame.
+    const double blurSigma = 14;
+
+    return Stack(
+      fit: StackFit.expand,
+      children: <Widget>[
+        if (glass > 0.001)
+          Positioned(
+            left: 0,
+            top: 0,
+            right: 0,
+            height: safeTop + 42,
+            child: IgnorePointer(
+              child: ClipRect(
+                child: BackdropFilter(
+                  filter: ui.ImageFilter.blur(
+                    sigmaX: blurSigma,
+                    sigmaY: blurSigma,
+                    tileMode: TileMode.clamp,
+                  ),
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: <Color>[
+                          (dark ? const Color(0xFF1D2735) : Colors.white)
+                              .withValues(alpha: 0.48 * glass),
+                          colors.surfaceContainer.withValues(
+                            alpha: 0.40 * glass,
+                          ),
+                          colors.surface.withValues(alpha: 0.28 * glass),
+                        ],
+                        stops: const <double>[0, 0.58, 1],
+                      ),
+                      border: Border(
+                        bottom: BorderSide(
+                          color: colors.outline.withValues(alpha: 0.08 * glass),
+                          width: 0.55,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+
+        if (glass > 0.001)
+          Positioned(
+            left: 0,
+            right: 0,
+            top: safeTop + 34,
+            height: 8,
+            child: IgnorePointer(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: <Color>[
+                      colors.primary.withValues(alpha: 0.028 * glass),
+                      colors.secondary.withValues(alpha: 0.016 * glass),
+                      colors.surface.withValues(alpha: 0),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+
+        if (glass > 0.001)
+          Positioned(
+            left: 18 + (12 * (1 - morph)),
+            right: 28 - (10 * morph),
+            top: safeTop + 41,
+            height: 0.8,
+            child: IgnorePointer(
+              child: Opacity(
+                opacity: 0.15 * glass,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: <Color>[
+                        Colors.white.withValues(alpha: 0),
+                        colors.primary.withValues(alpha: 0.34),
+                        Colors.white.withValues(alpha: dark ? 0.22 : 0.36),
+                        colors.secondary.withValues(alpha: 0.24),
+                        Colors.white.withValues(alpha: 0),
+                      ],
+                      stops: const <double>[0, 0.26, 0.48, 0.72, 1],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+
+        if (onBack != null)
+          Positioned(
+            left: ui.lerpDouble(12, 10, morph) ?? 10,
+            top:
+                ui.lerpDouble(safeTop + topPadding - 2, safeTop + 3, morph) ??
+                (safeTop + 3),
+            width: ui.lerpDouble(44, 36, morph) ?? 36,
+            height: ui.lerpDouble(44, 36, morph) ?? 36,
+            child: PressScale(
+              onTap: onBack!,
+              child: Center(
+                child: Icon(
+                  Icons.arrow_back_rounded,
+                  size: ui.lerpDouble(22, 20, morph) ?? 20,
+                  color: colors.onSurface,
+                ),
+              ),
+            ),
+          ),
+
+        Positioned(
+          left: titleX,
+          right: titleWidthRight,
+          top: titleY,
+          height: ui.lerpDouble(36, 30, morph) ?? 30,
+          child: IgnorePointer(
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: titleFont,
+                  height: 1,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: ui.lerpDouble(-0.85, -0.25, morph),
+                  color: colors.onSurface,
+                  shadows: glass > 0.15
+                      ? <Shadow>[
+                          Shadow(
+                            color: colors.surface.withValues(
+                              alpha: dark ? 0.22 : 0.28,
+                            ),
+                            blurRadius: 5 * glass,
+                          ),
+                        ]
+                      : null,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class PeridotHeader extends StatelessWidget {
+  const PeridotHeader({
+    required this.title,
+    required this.subtitle,
+    this.large = false,
+    super.key,
+  });
+
+  final String title;
+  final String subtitle;
+  final bool large;
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme colors = Theme.of(context).colorScheme;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Text(
+          title,
+          style: TextStyle(
+            fontSize: large ? 30 : 25,
+            fontWeight: FontWeight.w900,
+            letterSpacing: large ? -0.85 : -0.5,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          subtitle,
+          style: TextStyle(fontSize: 14, color: colors.onSurfaceVariant),
+        ),
+      ],
+    );
+  }
+}
+
+class DetailHeader extends StatelessWidget {
+  const DetailHeader({
+    required this.title,
+    required this.onBack,
+    this.trailing,
+    super.key,
+  });
+
+  final String title;
+  final VoidCallback onBack;
+  final Widget? trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: <Widget>[
+        PressScale(
+          onTap: onBack,
+          child: const SizedBox(
+            width: 44,
+            height: 44,
+            child: Icon(Icons.arrow_back_rounded),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            title,
+            style: const TextStyle(fontSize: 23, fontWeight: FontWeight.w800),
+          ),
+        ),
+        if (trailing != null) trailing!,
+      ],
+    );
+  }
+}
+
+class LiveDashboardHero extends StatelessWidget {
+  const LiveDashboardHero({super.key});
+
+  String _displayMode(PeridotBackendSnapshot snapshot) {
+    return switch (snapshot.displayColor) {
+      0 => 'Original PRO',
+      1 => 'Vivid',
+      2 => 'Saturated',
+      _ => snapshot.ready ? 'OEM Control' : '—',
+    };
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _BackendSnapshotBuilder(
+      builder: (PeridotBackendSnapshot snapshot) {
+        final ColorScheme colors = Theme.of(context).colorScheme;
+        final bool ready = snapshot.controlsAvailable;
+        final int onlineCores = _peridotOnlineCoreCount(snapshot);
+        final int activePerf = snapshot.performanceProfile >= 0
+            ? snapshot.performanceProfile
+            : 0;
+        final String profile = _peridotPerformanceLabel(activePerf);
+        const String source = 'Active performance profile';
+        final String battery = snapshot.batteryCapacity >= 0
+            ? '${snapshot.batteryCapacity}%'
+            : '—';
+        final String temp = snapshot.batteryTempC == null
+            ? '—'
+            : '${snapshot.batteryTempC!.toStringAsFixed(1)}°C';
+        final String touch = _peridotTouchLabel(snapshot.touchState);
+        final PeridotAppearanceConfig appearance = PeridotAppearanceScope.of(context);
+
+        final Color profileAccent = switch (activePerf) {
+          2 => const Color(0xFF35C997), // Battery Saver
+          1 => const Color(0xFFFFB84D), // Gaming Dynamic
+          3 => const Color(0xFFFF5252), // Extreme Beast
+          _ => const Color(0xFF4EA8DE), // Stock Balanced
+        };
+
+        return Stack(
+          children: <Widget>[
+            if (appearance.heroGlow)
+              Positioned.fill(
+                child: Container(
+                  margin: const EdgeInsets.all(4),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(
+                      appearance.cardRadius + 4,
+                    ),
+                    boxShadow: <BoxShadow>[
+                      BoxShadow(
+                        color: profileAccent.withValues(alpha: 0.14),
+                        blurRadius: 28,
+                        spreadRadius: -2,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            SurfaceCard(
+              padding: const EdgeInsets.fromLTRB(18, 16, 16, 16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Row(
+                    children: <Widget>[
+                      Text(
+                        'DEVICE PULSE',
+                        style: TextStyle(
+                          fontSize: 10.2,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 1.25,
+                          color: colors.onSurfaceVariant,
+                        ),
+                      ),
+                      const Spacer(),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 3.5,
+                        ),
+                        decoration: BoxDecoration(
+                          color:
+                              (ready
+                                      ? const Color(0xFF41C98A)
+                                      : colors.onSurfaceVariant)
+                                  .withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(99),
+                          border: Border.all(
+                            color:
+                                (ready
+                                        ? const Color(0xFF41C98A)
+                                        : colors.onSurfaceVariant)
+                                    .withValues(alpha: 0.28),
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: <Widget>[
+                            Container(
+                              width: 6,
+                              height: 6,
+                              decoration: BoxDecoration(
+                                color: ready
+                                    ? const Color(0xFF41C98A)
+                                    : colors.onSurfaceVariant,
+                                shape: BoxShape.circle,
+                                boxShadow: ready
+                                    ? <BoxShadow>[
+                                        BoxShadow(
+                                          color: const Color(0xFF41C98A)
+                                              .withValues(alpha: 0.7),
+                                          blurRadius: 6,
+                                        ),
+                                      ]
+                                    : null,
+                              ),
+                            ),
+                            const SizedBox(width: 5),
+                            Text(
+                              snapshot.serviceStatusBadgeLabel,
+                              style: TextStyle(
+                                fontSize: 9.5,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: 0.6,
+                                color: ready
+                                    ? const Color(0xFF41C98A)
+                                    : colors.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    profile,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 30,
+                      height: 0.98,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: -0.8,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Row(
+                    children: <Widget>[
+                      Icon(Icons.tune_rounded, size: 15, color: profileAccent),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          source,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 11.4,
+                            fontWeight: FontWeight.w600,
+                            color: colors.onSurfaceVariant,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  // Dynamic CPU Core Visualizer Bar
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 7,
+                    ),
+                    decoration: BoxDecoration(
+                      color: colors.surfaceContainer.withValues(alpha: 0.35),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: colors.outline.withValues(alpha: 0.20),
+                      ),
+                    ),
+                    child: Row(
+                      children: <Widget>[
+                        Text(
+                          'CORES',
+                          style: TextStyle(
+                            fontSize: 9,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 0.8,
+                            color: colors.onSurfaceVariant,
+                          ),
+                        ),
+                        const Spacer(),
+                        if (appearance.coreVisualizerStyle == 1) ...<Widget>[
+                          for (int cpu = 0; cpu < 8; cpu++)
+                            Container(
+                              width: 9,
+                              height: 9,
+                              margin: const EdgeInsets.symmetric(
+                                horizontal: 2.5,
+                              ),
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: snapshot.cpuOnline(cpu)
+                                    ? (cpu == 7
+                                          ? const Color(0xFFFF8E3C)
+                                          : (cpu >= 4
+                                                ? const Color(0xFFA066FF)
+                                                : const Color(0xFF4EA8DE)))
+                                    : const Color(0xFF222222),
+                                boxShadow: snapshot.cpuOnline(cpu)
+                                    ? <BoxShadow>[
+                                        BoxShadow(
+                                          color:
+                                              (cpu == 7
+                                                      ? const Color(0xFFFF8E3C)
+                                                      : (cpu >= 4
+                                                            ? const Color(
+                                                                0xFFA066FF,
+                                                              )
+                                                            : const Color(
+                                                                0xFF4EA8DE,
+                                                              )))
+                                                  .withValues(alpha: 0.65),
+                                          blurRadius: 5,
+                                        ),
+                                      ]
+                                    : null,
+                              ),
+                            ),
+                        ] else if (appearance.coreVisualizerStyle ==
+                            2) ...<Widget>[
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(99),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: <Widget>[
+                                for (int cpu = 0; cpu < 8; cpu++)
+                                  Container(
+                                    width: 13,
+                                    height: 10,
+                                    margin: const EdgeInsets.symmetric(
+                                      horizontal: 0.5,
+                                    ),
+                                    color: snapshot.cpuOnline(cpu)
+                                        ? (cpu == 7
+                                              ? const Color(0xFFFF8E3C)
+                                              : (cpu >= 4
+                                                    ? const Color(0xFFA066FF)
+                                                    : const Color(0xFF4EA8DE)))
+                                        : const Color(0xFF222222),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ] else ...<Widget>[
+                          for (int cpu = 0; cpu < 8; cpu++)
+                            Container(
+                              width: 8,
+                              height: 14,
+                              margin: const EdgeInsets.symmetric(
+                                horizontal: 2.5,
+                              ),
+                              decoration: BoxDecoration(
+                                color: snapshot.cpuOnline(cpu)
+                                    ? (cpu == 7
+                                          ? const Color(0xFFFF8E3C)
+                                          : (cpu >= 4
+                                                ? const Color(0xFFA066FF)
+                                                : const Color(0xFF4EA8DE)))
+                                    : const Color(0xFF222222),
+                                borderRadius: BorderRadius.circular(3),
+                                boxShadow: snapshot.cpuOnline(cpu)
+                                    ? <BoxShadow>[
+                                        BoxShadow(
+                                          color:
+                                              (cpu == 7
+                                                      ? const Color(0xFFFF8E3C)
+                                                      : (cpu >= 4
+                                                            ? const Color(
+                                                                0xFFA066FF,
+                                                              )
+                                                            : const Color(
+                                                                0xFF4EA8DE,
+                                                              )))
+                                                  .withValues(alpha: 0.45),
+                                          blurRadius: 4,
+                                        ),
+                                      ]
+                                    : null,
+                              ),
+                            ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 11),
+                  Wrap(
+                    spacing: 7,
+                    runSpacing: 7,
+                    children: <Widget>[
+                      _PulseChip(
+                        icon: Icons.memory_rounded,
+                        label: ready ? '$onlineCores / 8 online' : 'CPU —',
+                        accent: const Color(0xFF67C2FF),
+                      ),
+                      _PulseChip(
+                        icon: Icons.palette_rounded,
+                        label: _displayMode(snapshot),
+                        accent: const Color(0xFFB087FF),
+                      ),
+                      _PulseChip(
+                        icon: Icons.touch_app_rounded,
+                        label: 'Touch $touch',
+                        accent: const Color(0xFF41C98A),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Container(
+                    height: 1,
+                    color: colors.outline.withValues(alpha: 0.15),
+                  ),
+                  const SizedBox(height: 11),
+                  Row(
+                    children: <Widget>[
+                      const Icon(
+                        Icons.battery_std_rounded,
+                        size: 15,
+                        color: Color(0xFF41C98A),
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        battery,
+                        style: const TextStyle(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        '•',
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: colors.onSurfaceVariant,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      const Icon(
+                        Icons.thermostat_rounded,
+                        size: 15,
+                        color: Color(0xFF59BCFF),
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        temp,
+                        style: const TextStyle(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const Spacer(),
+                      Text(
+                        snapshot.serviceStatusLabel,
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: profileAccent,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _PulseChip extends StatelessWidget {
+  const _PulseChip({
+    required this.icon,
+    required this.label,
+    required this.accent,
+  });
+
+  final IconData icon;
+  final String label;
+  final Color accent;
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme colors = Theme.of(context).colorScheme;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 7),
+      decoration: BoxDecoration(
+        color: colors.surfaceContainer.withValues(alpha: 0.34),
+        borderRadius: BorderRadius.circular(99),
+        border: Border.all(color: PeridotSurfaceLines.inset(colors)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Icon(icon, size: 14, color: accent),
+          const SizedBox(width: 5),
+          Text(
+            label,
+            style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class HeroCard extends StatelessWidget {
+  const HeroCard({
+    required this.icon,
+    required this.accent,
+    required this.title,
+    required this.subtitle,
+    this.leading,
+    super.key,
+  });
+
+  final IconData icon;
+  final Color accent;
+  final String title;
+  final String subtitle;
+  final Widget? leading;
+
+  @override
+  Widget build(BuildContext context) {
+    final bool dark = Theme.of(context).brightness == Brightness.dark;
+    final ColorScheme colors = Theme.of(context).colorScheme;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(15, 15, 15, 14),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(24),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: <Color>[
+            Color.alphaBlend(
+              accent.withValues(alpha: dark ? 0.20 : 0.12),
+              colors.surface,
+            ),
+            colors.surface,
+            Color.alphaBlend(
+              colors.secondary.withValues(alpha: dark ? 0.05 : 0.03),
+              colors.surface,
+            ),
+          ],
+          stops: const <double>[0, 0.60, 1],
+        ),
+        border: Border.all(color: accent.withValues(alpha: 0.23)),
+        boxShadow: <BoxShadow>[
+          BoxShadow(
+            color: accent.withValues(alpha: 0.10),
+            blurRadius: 24,
+            spreadRadius: -7,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Row(
+        children: <Widget>[
+          leading ?? IconTile(icon: icon, accent: accent, size: 54),
+          const SizedBox(width: 13),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 18.5,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.25,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  subtitle,
+                  style: TextStyle(
+                    height: 1.25,
+                    fontSize: 12.3,
+                    color: colors.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class GithubIcon extends StatelessWidget {
+  const GithubIcon({required this.color, this.size = 23, super.key});
+
+  final Color color;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: size,
+      height: size,
+      child: CustomPaint(painter: _GithubPainter(color: color)),
+    );
+  }
+}
+
+class _GithubPainter extends CustomPainter {
+  const _GithubPainter({required this.color});
+
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final Paint paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.fill;
+
+    final double scale = size.width / 16.0;
+    canvas.save();
+    canvas.scale(scale, scale);
+
+    final Path path = Path();
+    path.moveTo(8, 0);
+    path.cubicTo(3.58, 0, 0, 3.58, 0, 8);
+    path.cubicTo(0, 11.54, 2.29, 14.53, 5.47, 15.59);
+    path.cubicTo(5.87, 15.66, 6.02, 15.42, 6.02, 15.21);
+    path.cubicTo(6.02, 15.02, 6.01, 14.39, 6.01, 13.72);
+    path.cubicTo(4, 14.09, 3.48, 13.23, 3.32, 12.78);
+    path.cubicTo(3.23, 12.55, 2.84, 11.84, 2.5, 11.65);
+    path.cubicTo(2.22, 11.5, 1.82, 11.13, 2.49, 11.12);
+    path.cubicTo(3.12, 11.11, 3.57, 11.7, 3.72, 11.94);
+    path.cubicTo(4.44, 13.15, 5.59, 12.81, 6.05, 12.6);
+    path.cubicTo(6.12, 12.08, 6.33, 11.73, 6.56, 11.53);
+    path.cubicTo(4.78, 11.33, 2.92, 10.64, 2.92, 7.58);
+    path.cubicTo(2.92, 6.71, 3.23, 5.99, 3.74, 5.43);
+    path.cubicTo(3.66, 5.23, 3.38, 4.41, 3.82, 3.31);
+    path.cubicTo(3.82, 3.31, 4.49, 3.1, 6.02, 4.13);
+    path.cubicTo(6.66, 3.95, 7.34, 3.86, 8.02, 3.86);
+    path.cubicTo(8.7, 3.86, 9.38, 3.95, 10.02, 4.13);
+    path.cubicTo(11.55, 3.1, 12.22, 3.31, 12.22, 3.31);
+    path.cubicTo(12.66, 4.41, 12.38, 5.23, 12.3, 5.43);
+    path.cubicTo(12.81, 5.99, 13.12, 6.71, 13.12, 7.58);
+    path.cubicTo(13.12, 10.65, 11.25, 11.33, 9.47, 11.53);
+    path.cubicTo(9.76, 11.78, 10.01, 12.26, 10.01, 13.01);
+    path.cubicTo(10.01, 14.08, 10, 14.94, 10, 15.21);
+    path.cubicTo(10, 15.42, 10.15, 15.67, 10.55, 15.59);
+    path.cubicTo(13.71, 14.53, 16, 11.54, 16, 8);
+    path.cubicTo(16, 3.58, 12.42, 0, 8, 0);
+    path.close();
+
+    canvas.drawPath(path, paint);
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(covariant _GithubPainter oldDelegate) =>
+      oldDelegate.color != color;
+}
+
+class FeatureCard extends StatelessWidget {
+  const FeatureCard({
+    required this.title,
+    required this.subtitle,
+    required this.accent,
+    required this.onTap,
+    this.icon,
+    this.customIcon,
+    super.key,
+  });
+
+  final String title;
+  final String subtitle;
+  final IconData? icon;
+  final Widget? customIcon;
+  final Color accent;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme colors = Theme.of(context).colorScheme;
+
+    return PressScale(
+      onTap: onTap,
+      child: SurfaceCard(
+        padding: const EdgeInsets.fromLTRB(14, 12, 13, 12),
+        child: Row(
+          children: <Widget>[
+            IconTile(icon: icon, child: customIcon, accent: accent, size: 46),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 15.5,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: -0.15,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: colors.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Container(
+              width: 31,
+              height: 31,
+              decoration: BoxDecoration(
+                color: accent.withValues(alpha: 0.075),
+                borderRadius: BorderRadius.circular(11),
+              ),
+              child: Icon(
+                Icons.arrow_forward_ios_rounded,
+                size: 13,
+                color: accent,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class HubRow extends StatelessWidget {
+  const HubRow({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.accent,
+    required this.onTap,
+    super.key,
+  });
+
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final Color accent;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme colors = Theme.of(context).colorScheme;
+
+    return PressScale(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+        decoration: BoxDecoration(borderRadius: BorderRadius.circular(17)),
+        child: Row(
+          children: <Widget>[
+            IconTile(icon: icon, accent: accent, size: 42),
+            const SizedBox(width: 11),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      height: 1.35,
+                      color: colors.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Icon(
+              Icons.chevron_right_rounded,
+              size: 19,
+              color: colors.onSurfaceVariant.withValues(alpha: 0.72),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class SurfaceCard extends StatelessWidget {
+  const SurfaceCard({
+    required this.child,
+    this.padding = const EdgeInsets.all(14),
+    this.accent,
+    super.key,
+  });
+
+  final Widget child;
+  final EdgeInsetsGeometry padding;
+  final Color? accent;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final bool dark = theme.brightness == Brightness.dark;
+    final ColorScheme colors = theme.colorScheme;
+    final PeridotAppearanceConfig config = PeridotAppearanceScope.of(context);
+    final Color activeAccent = accent ?? config.activeAccent;
+    final double radius = config.cardRadius;
+
+    final BoxDecoration decoration = switch (config.cardStyle) {
+      1 => BoxDecoration(
+        // Frosted Glass
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: <Color>[
+            colors.surface.withValues(alpha: dark ? 0.68 : 0.80),
+            Color.alphaBlend(
+              activeAccent.withValues(alpha: dark ? 0.075 : 0.045),
+              colors.surface.withValues(alpha: dark ? 0.64 : 0.76),
+            ),
+            colors.surface.withValues(alpha: dark ? 0.48 : 0.66),
+          ],
+          stops: const <double>[0, 0.56, 1],
+        ),
+        borderRadius: BorderRadius.circular(radius),
+        border: Border.all(color: PeridotSurfaceLines.border(colors), width: 0.85),
+        boxShadow: <BoxShadow>[
+          BoxShadow(
+            color: dark
+                ? Colors.black.withValues(alpha: 0.24)
+                : const Color(0x1A0C2943),
+            blurRadius: 24,
+            spreadRadius: -8,
+            offset: const Offset(0, 11),
+          ),
+        ],
+      ),
+      2 => BoxDecoration(
+        // Neon Ambient Edge
+        color: dark ? const Color(0xFF000000) : null,
+        gradient: dark
+            ? null
+            : const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: <Color>[Color(0xFFFFFFFF), Color(0xFFF7FAFE)],
+              ),
+        borderRadius: BorderRadius.circular(radius),
+        border: Border.all(
+          color: dark
+              ? activeAccent.withValues(alpha: 0.45)
+              : activeAccent.withValues(alpha: 0.35),
+          width: 1.1,
+        ),
+        boxShadow: <BoxShadow>[
+          BoxShadow(
+            color: activeAccent.withValues(alpha: dark ? 0.10 : 0.06),
+            blurRadius: 14,
+            spreadRadius: 0.5,
+          ),
+        ],
+      ),
+      3 => BoxDecoration(
+        // Minimal Slate
+        color: dark ? const Color(0xFF101419) : const Color(0xFFF0F4F8),
+        borderRadius: BorderRadius.circular(radius),
+        border: Border.all(color: PeridotSurfaceLines.border(colors)),
+        boxShadow: dark
+            ? const <BoxShadow>[]
+            : const <BoxShadow>[
+                BoxShadow(
+                  color: Color(0x140C2943),
+                  blurRadius: 18,
+                  offset: Offset(0, 7),
+                ),
+              ],
+      ),
+      _ => BoxDecoration(
+        // AMOLED Deep (Default)
+        color: dark ? const Color(0xFF000000) : null,
+        gradient: dark
+            ? null
+            : const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: <Color>[Color(0xFFFFFFFF), Color(0xFFF7FAFE)],
+              ),
+        borderRadius: BorderRadius.circular(radius),
+        border: Border.all(color: PeridotSurfaceLines.border(colors)),
+        boxShadow: dark
+            ? const <BoxShadow>[]
+            : const <BoxShadow>[
+                BoxShadow(
+                  color: Color(0x140C2943),
+                  blurRadius: 18,
+                  offset: Offset(0, 7),
+                ),
+              ],
+      ),
+    };
+
+    final Widget card = Container(
+      width: double.infinity,
+      padding: padding,
+      decoration: decoration,
+      child: child,
+    );
+
+    return card;
+  }
+}
+
+class IconTile extends StatelessWidget {
+  const IconTile({
+    required this.accent,
+    this.icon,
+    this.child,
+    this.size = 46,
+    super.key,
+  });
+
+  final IconData? icon;
+  final Widget? child;
+  final Color accent;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme colors = Theme.of(context).colorScheme;
+
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: <Color>[
+            Color.alphaBlend(accent.withValues(alpha: 0.30), colors.surface),
+            Color.alphaBlend(accent.withValues(alpha: 0.12), colors.surface),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(size * 0.30),
+        border: Border.all(color: accent.withValues(alpha: 0.32), width: 0.85),
+        boxShadow: <BoxShadow>[
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.045),
+            blurRadius: 10,
+            spreadRadius: -6,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      alignment: Alignment.center,
+      child:
+          child ??
+          (icon != null
+              ? Icon(icon, color: accent, size: size * 0.49)
+              : const SizedBox.shrink()),
+    );
+  }
+}
+
+class SummaryChip extends StatelessWidget {
+  const SummaryChip({
+    required this.title,
+    required this.subtitle,
+    required this.accent,
+    this.onTap,
+    super.key,
+  });
+
+  final String title;
+  final String subtitle;
+  final Color accent;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme colors = theme.colorScheme;
+    final bool dark = theme.brightness == Brightness.dark;
+
+    Widget chip = Container(
+      constraints: const BoxConstraints(minHeight: 58),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: <Color>[
+            colors.surface.withValues(alpha: dark ? 0.74 : 0.94),
+            accent.withValues(alpha: dark ? 0.055 : 0.035),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: colors.outline.withValues(alpha: dark ? 0.58 : 0.44),
+          width: 0.7,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: <Widget>[
+          Text(
+            title,
+            maxLines: 1,
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+              color: accent,
+            ),
+          ),
+          const SizedBox(height: 3),
+          Text(
+            subtitle,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 12.2, fontWeight: FontWeight.w700),
+          ),
+        ],
+      ),
+    );
+
+    if (onTap != null) {
+      chip = PressScale(onTap: onTap, child: chip);
+    }
+
+    return chip;
+  }
+}
+
+class StatusPill extends StatelessWidget {
+  const StatusPill({required this.label, required this.accent, super.key});
+
+  final String label;
+  final Color accent;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      decoration: BoxDecoration(
+        color: accent.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: accent,
+          fontSize: 10,
+          fontWeight: FontWeight.w800,
+          letterSpacing: 0.5,
+        ),
+      ),
+    );
+  }
+}
+
+class SectionLabel extends StatelessWidget {
+  const SectionLabel(this.label, {super.key});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 2),
+      child: Text(
+        label.toUpperCase(),
+        style: TextStyle(
+          fontSize: 10.5,
+          fontWeight: FontWeight.w800,
+          letterSpacing: 0.82,
+          color: Theme.of(context).colorScheme.onSurfaceVariant
+              .withValues(alpha: 0.78),
+        ),
+      ),
+    );
+  }
+}
+
+class PeridotHaptics {
+  const PeridotHaptics._();
+
+  static final PeridotBackend _backend = PeridotBackend.instance;
+
+  static void _send(int kind) {
+    if (!PeridotInteractionSettings.hapticsEnabled) return;
+    _backend.haptic(kind);
+  }
+
+  static void tap() => _send(1);
+  static void context() => _send(2);
+  static void toggle(bool enabled) => _send(enabled ? 3 : 4);
+  static void segment() => _send(5);
+  static void frequentSegment() => _send(6);
+  static void confirm() => _send(7);
+  static void reject() => _send(8);
+  static void back() => _send(9);
+
+  static ValueChanged<bool>? toggleCallback(ValueChanged<bool>? callback) {
+    if (callback == null) return null;
+    return (bool enabled) {
+      toggle(enabled);
+      callback(enabled);
+    };
+  }
+}
+
+class PeridotInteractionSettings {
+  const PeridotInteractionSettings._();
+
+  static const int _motionModelVersion = 6;
+
+  static final ValueNotifier<int> revision = ValueNotifier<int>(0);
+
+  static double motionSpeed = 1.00;
+  static bool hapticsEnabled = true;
+  static bool _loaded = false;
+
+  static File get _file {
+    final Directory parent = Directory.systemTemp.parent;
+
+    return File('${parent.path}/files/peridot-interaction.json');
+  }
+
+  static double get motionProgress {
+    return ((motionSpeed.clamp(0.75, 1.35) - 0.75) / 0.60).toDouble();
+  }
+
+  static String get motionLabel {
+    if (motionSpeed < 0.90) return 'Relaxed and cinematic';
+    if (motionSpeed > 1.15) return 'Direct and responsive';
+    return 'Balanced and fluid';
+  }
+
+  static double _mix(double relaxed, double direct) {
+    return relaxed + (direct - relaxed) * motionProgress;
+  }
+
+  static Curve get pressCurve =>
+      Cubic(_mix(0.16, 0.28), _mix(1.00, 0.00), _mix(0.30, 0.18), 1.00);
+
+  static Curve get transitionCurve =>
+      Cubic(_mix(0.16, 0.26), _mix(1.00, 0.00), _mix(0.30, 0.16), 1.00);
+
+  static double get pressScale => _mix(0.985, 0.965);
+
+  static double get pressOpacity => _mix(0.975, 0.935);
+
+  static double get detailSlideDistance => _mix(0.035, 0.065);
+
+  static double get pageScale => _mix(0.985, 0.992);
+
+  static SpringDescription get interactionSpring =>
+      SpringDescription.withDampingRatio(
+        mass: 0.8,
+        stiffness: _mix(430, 560),
+        ratio: 0.78,
+      );
+
+  static Duration motionDuration(int baseMilliseconds) {
+    final double speed = motionSpeed.clamp(0.75, 1.35).toDouble();
+    final int milliseconds = (baseMilliseconds / speed).round().clamp(70, 900);
+
+    return Duration(milliseconds: milliseconds);
+  }
+
+  static Future<void> load() async {
+    if (_loaded) {
+      return;
+    }
+
+    _loaded = true;
+
+    try {
+      final File file = _file;
+
+      if (!await file.exists()) {
+        revision.value += 1;
+        return;
+      }
+
+      final Object? decoded = jsonDecode(await file.readAsString());
+
+      if (decoded is! Map<String, dynamic>) {
+        revision.value += 1;
+        return;
+      }
+
+      final int version = (decoded['motionModelVersion'] as num?)?.toInt() ?? 0;
+
+      if (version >= _motionModelVersion) {
+        final num? raw = decoded['motionSpeed'] as num?;
+        motionSpeed = (raw?.toDouble() ?? 1.00).clamp(0.75, 1.35).toDouble();
+      } else {
+        motionSpeed = 1.00;
+      }
+
+      final Object? hapticRaw = decoded['hapticsEnabled'];
+
+      if (hapticRaw is bool) {
+        hapticsEnabled = hapticRaw;
+      }
+
+      revision.value += 1;
+
+      if (version != _motionModelVersion) {
+        await _persist();
+      }
+    } catch (_) {
+      revision.value += 1;
+    }
+  }
+
+  static void previewMotionSpeed(double value) {
+    motionSpeed = value.clamp(0.75, 1.35).toDouble();
+  }
+
+  static Future<void> commitMotionSpeed(double value) async {
+    previewMotionSpeed(value);
+    revision.value += 1;
+    await _persist();
+  }
+
+  static Future<void> resetMotion() async {
+    motionSpeed = 1.00;
+    revision.value += 1;
+    await _persist();
+  }
+
+  static Future<void> setHaptics(bool enabled) async {
+    hapticsEnabled = enabled;
+    revision.value += 1;
+    await _persist();
+  }
+
+  static Future<void> _persist() async {
+    try {
+      final File file = _file;
+
+      await file.parent.create(recursive: true);
+
+      await file.writeAsString(
+        jsonEncode(<String, Object>{
+          'motionModelVersion': _motionModelVersion,
+          'motionSpeed': motionSpeed,
+          'hapticsEnabled': hapticsEnabled,
+        }),
+        flush: false,
+      );
+    } catch (_) {}
+  }
+}
+
+class PressScale extends StatefulWidget {
+  const PressScale({
+    required this.child,
+    this.onTap,
+    this.enableHaptics = true,
+    this.enableLight = true,
+    super.key,
+  });
+
+  final Widget child;
+  final VoidCallback? onTap;
+  final bool enableHaptics;
+  final bool enableLight;
+
+  @override
+  State<PressScale> createState() => _PressScaleState();
+}
+
+class _PressScaleState extends State<PressScale>
+    with SingleTickerProviderStateMixin {
+  Offset _pressPoint = Offset.zero;
+  final GlobalKey<PeridotTouchLightState> _lightKey =
+      GlobalKey<PeridotTouchLightState>();
+  late final AnimationController _depth;
+  @override
+  void initState() {
+    super.initState();
+    _depth = AnimationController.unbounded(vsync: this, value: 0);
+  }
+
+  void _press(TapDownDetails details) {
+    if (MediaQuery.disableAnimationsOf(context)) return;
+    final size = context.size;
+    if (size != null && size.width > 0 && size.height > 0) {
+      setState(
+        () => _pressPoint = Offset(
+          (details.localPosition.dx / size.width * 2 - 1).clamp(-1.0, 1.0),
+          (details.localPosition.dy / size.height * 2 - 1).clamp(-1.0, 1.0),
+        ),
+      );
+    }
+    _depth.animateWith(
+      SpringSimulation(
+        PeridotInteractionSettings.interactionSpring,
+        _depth.value,
+        1,
+        _depth.velocity.clamp(-4.0, 4.0) + 5,
+      ),
+    );
+  }
+
+  void _release() {
+    _lightKey.currentState?.cancel();
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _depth.value = 0;
+      return;
+    }
+    final double start = _depth.value;
+    _depth.animateWith(
+      SpringSimulation(
+        PeridotInteractionSettings.interactionSpring,
+        start,
+        0,
+        _depth.velocity.clamp(-4.0, 4.0),
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _depth.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.onTap == null) {
+      return widget.child;
+    }
+
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTapDown: _press,
+      onTapCancel: _release,
+      onTapUp: (_) {
+        _release();
+        if (widget.enableHaptics) PeridotHaptics.tap();
+        widget.onTap?.call();
+      },
+      child: AnimatedBuilder(
+        animation: _depth,
+        child: widget.enableLight
+            ? PeridotTouchLight(
+                key: _lightKey,
+                enabled: widget.enableLight,
+                accent: PeridotAppearanceScope.of(context).activeAccent,
+                radius: PeridotAppearanceScope.of(context).cardRadius,
+                child: widget.child,
+              )
+            : widget.child,
+        builder: (BuildContext context, Widget? child) {
+          final double depth = MediaQuery.disableAnimationsOf(context)
+              ? 0
+              : _depth.value.clamp(-0.08, 1.04).toDouble();
+          final double scale = ui.lerpDouble(
+            1,
+            PeridotInteractionSettings.pressScale,
+            depth,
+          )!;
+          final double opacity = ui
+              .lerpDouble(
+                1,
+                PeridotInteractionSettings.pressOpacity,
+                depth.clamp(0, 1).toDouble(),
+              )!
+              .clamp(0, 1)
+              .toDouble();
+
+          return Transform.scale(
+            scale: scale,
+            child: Transform(
+              alignment: Alignment.center,
+              transform: Matrix4.identity()
+                ..setEntry(3, 2, 0.001)
+                ..rotateX(-_pressPoint.dy * depth * 0.006)
+                ..rotateY(_pressPoint.dx * depth * 0.006),
+              child: Opacity(opacity: opacity, child: child),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class PeridotBottomBar extends StatefulWidget {
+  const PeridotBottomBar({
+    required this.controller,
+    required this.currentRoot,
+    required this.onSelect,
+    this.onDragStart,
+    super.key,
+  });
+
+  final PageController controller;
+  final PeridotScreen currentRoot;
+  final ValueChanged<PeridotScreen> onSelect;
+  final VoidCallback? onDragStart;
+
+  @override
+  State<PeridotBottomBar> createState() => _PeridotBottomBarState();
+}
+
+class _PeridotBottomBarState extends State<PeridotBottomBar>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _elasticity = AnimationController.unbounded(
+    vsync: this,
+    value: 0,
+  );
+
+  double _dragPage = 0;
+  Drag? _dockDrag;
+  int? _lastDragIndex;
+  bool _dragging = false;
+
+  static const List<PeridotScreen> _screens = <PeridotScreen>[
+    PeridotScreen.home,
+    PeridotScreen.hubs,
+    PeridotScreen.support,
+    PeridotScreen.settings,
+  ];
+
+  static const List<String> _labels = <String>[
+    'Home',
+    'Hubs',
+    'Support',
+    'Settings',
+  ];
+
+  static const List<IconData> _icons = <IconData>[
+    Icons.home_rounded,
+    Icons.grid_view_rounded,
+    Icons.favorite_rounded,
+    Icons.settings_rounded,
+  ];
+
+  static const List<Color> _sectionColors = <Color>[
+    Color(0xFF2563EB), // Home: Electric Azure
+    Color(0xFF10B981), // Hubs: Vivid Emerald
+    Color(0xFFF43F5E), // Support: Neon Rose
+    Color(0xFF8B5CF6), // Settings: Cyber Violet
+  ];
+
+  int _selectedIndex() {
+    final int index = _screens.indexOf(widget.currentRoot);
+    return index < 0 ? 0 : index;
+  }
+
+  double _pageForPosition(double dx, double width) {
+    final double itemWidth = width / _screens.length;
+    return ((dx / itemWidth) - 0.5)
+        .clamp(0.0, _screens.length - 1.0)
+        .toDouble();
+  }
+
+  void _beginDrag(double dx, double width) {
+    widget.onDragStart?.call();
+    if (!widget.controller.hasClients) return;
+    _dragging = true;
+    _lastDragIndex = null;
+    _elasticity
+      ..stop()
+      ..value = 0;
+    PeridotHaptics.segment();
+    // Keep one real drag activity alive until release. jumpTo() starts a
+    // ballistic page snap after EVERY update, fighting a stationary finger.
+    _dockDrag = widget.controller.position.drag(
+      DragStartDetails(localPosition: Offset(dx, 0)),
+      () => _dockDrag = null,
+    );
+    _updateDrag(dx, width, 0);
+  }
+
+  void _updateDrag(double dx, double width, double delta) {
+    if (!widget.controller.hasClients) {
+      return;
+    }
+
+    final double page = _pageForPosition(dx, width);
+    final int index = page.round().clamp(0, _screens.length - 1);
+    final ScrollPosition position = widget.controller.position;
+    final double pixels = (page * position.viewportDimension)
+        .clamp(position.minScrollExtent, position.maxScrollExtent)
+        .toDouble();
+
+    _dragPage = page;
+    final double targetElasticity = (delta / 13).clamp(-1.0, 1.0).toDouble();
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _elasticity.value = 0;
+    } else {
+      // Ease the decorative stretch, never the finger-owned page position.
+      _elasticity.animateTo(
+        targetElasticity,
+        duration: const Duration(milliseconds: 90),
+        curve: Curves.easeOutCubic,
+      );
+    }
+    final reversed =
+        position.axisDirection == AxisDirection.left ||
+        position.axisDirection == AxisDirection.up;
+    final offset = (position.pixels - pixels) * (reversed ? -1 : 1);
+    _dockDrag?.update(
+      DragUpdateDetails(
+        delta: Offset(offset, 0),
+        primaryDelta: offset,
+        globalPosition: Offset(dx, 0),
+      ),
+    );
+
+    if (_lastDragIndex != index) {
+      if (_lastDragIndex != null) {
+        PeridotHaptics.frequentSegment();
+      }
+      _lastDragIndex = index;
+    }
+  }
+
+  void _settleDrag([double velocity = 0, double width = 1]) {
+    if (!_dragging) {
+      return;
+    }
+
+    final double projected =
+        _dragPage +
+        (velocity / (width / _screens.length) * 0.06).clamp(-0.5, 0.5);
+    final int target = projected.round().clamp(0, _screens.length - 1);
+    _dragging = false;
+    _lastDragIndex = null;
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _elasticity.value = 0;
+    } else {
+      _elasticity.animateWith(
+        SpringSimulation(
+          const SpringDescription(mass: 1, stiffness: 360, damping: 26),
+          _elasticity.value,
+          0,
+          -_elasticity.value * 0.8,
+        ),
+      );
+    }
+    PeridotHaptics.confirm();
+    // onSelect replaces the drag activity with exactly one target animation;
+    // cancelling it first would start a second, competing ballistic snap.
+    widget.onSelect(_screens[target]);
+  }
+
+  @override
+  void dispose() {
+    _dockDrag?.cancel();
+    _elasticity.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme colors = theme.colorScheme;
+    final bool dark = theme.brightness == Brightness.dark;
+
+    return Padding(
+      // Keep an actual gap above both gesture and three-button navigation.
+      // SafeArea.minimum uses max(), rather than adding this floating gap.
+      padding: EdgeInsets.fromLTRB(
+        10 + MediaQuery.viewPaddingOf(context).left,
+        0,
+        10 + MediaQuery.viewPaddingOf(context).right,
+        PeridotBottomLayout.navigationClearance(context) +
+            PeridotBottomLayout.dockGap,
+      ),
+      child: RepaintBoundary(
+        child: Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(22),
+            boxShadow: <BoxShadow>[
+              BoxShadow(
+                color: Colors.black.withValues(alpha: dark ? 0.34 : 0.16),
+                blurRadius: 30,
+                spreadRadius: -10,
+                offset: const Offset(0, 11),
+              ),
+              BoxShadow(
+                color: colors.primary.withValues(alpha: dark ? 0.06 : 0.04),
+                blurRadius: 18,
+                spreadRadius: -10,
+                offset: const Offset(0, 3),
+              ),
+            ],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(22),
+            child: BackdropFilter(
+              filter: ui.ImageFilter.blur(
+                sigmaX: 12,
+                sigmaY: 12,
+                tileMode: TileMode.clamp,
+              ),
+              child: PeridotTouchLight(
+                accent: _sectionColors[_selectedIndex()],
+                radius: 22,
+                child: Container(
+                  height: PeridotBottomLayout.dockHeight,
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: <Color>[
+                        Colors.white.withValues(alpha: dark ? 0.13 : 0.80),
+                        colors.surface.withValues(alpha: dark ? 0.66 : 0.64),
+                        colors.surfaceContainerHighest.withValues(
+                          alpha: dark ? 0.50 : 0.42,
+                        ),
+                      ],
+                      stops: const <double>[0, 0.50, 1],
+                    ),
+                    borderRadius: BorderRadius.circular(22),
+                    border: Border.all(
+                      color: dark
+                          ? Colors.white.withValues(alpha: 0.19)
+                          : Colors.white.withValues(alpha: 0.88),
+                      width: 0.9,
+                    ),
+                  ),
+                  foregroundDecoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(22),
+                    border: Border(
+                      top: BorderSide(
+                        color: Colors.white.withValues(
+                          alpha: dark ? 0.12 : 0.62,
+                        ),
+                        width: 0.7,
+                      ),
+                    ),
+                  ),
+                  child: AnimatedBuilder(
+                    animation: Listenable.merge(<Listenable>[
+                      widget.controller,
+                      _elasticity,
+                    ]),
+                    builder: (BuildContext context, Widget? child) {
+                      double page = _selectedIndex().toDouble();
+
+                      if (widget.controller.hasClients) {
+                        try {
+                          page = widget.controller.page ?? page;
+                        } catch (_) {}
+                      }
+
+                      page = page.clamp(0.0, _screens.length - 1.0).toDouble();
+                      final int lower = page.floor().clamp(
+                        0,
+                        _screens.length - 1,
+                      );
+                      final int upper = page.ceil().clamp(
+                        0,
+                        _screens.length - 1,
+                      );
+                      final Color indicatorColor = Color.lerp(
+                        _sectionColors[lower],
+                        _sectionColors[upper],
+                        page - lower,
+                      )!;
+
+                      return LayoutBuilder(
+                        builder:
+                            (BuildContext context, BoxConstraints constraints) {
+                              final double itemWidth =
+                                  constraints.maxWidth / _screens.length;
+
+                              Widget navItem(int index) {
+                                final double rawFocus =
+                                    (1 - (page - index).abs()).clamp(0.0, 1.0);
+                                final double focus = PeridotInteractionSettings
+                                    .transitionCurve
+                                    .transform(rawFocus);
+                                final Color itemColor = _sectionColors[index];
+                                final Color foreground = Color.lerp(
+                                  colors.onSurfaceVariant.withValues(
+                                    alpha: 0.72,
+                                  ),
+                                  itemColor,
+                                  focus,
+                                )!;
+
+                                return Expanded(
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 2,
+                                    ),
+                                    child: PressScale(
+                                      enableLight: false,
+                                      onTap: () =>
+                                          widget.onSelect(_screens[index]),
+                                      child: SizedBox(
+                                        height: 56,
+                                        child: Center(
+                                          child: Transform.scale(
+                                            scale: 0.96 + (0.04 * focus),
+                                            child: Column(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: <Widget>[
+                                                Icon(
+                                                  _icons[index],
+                                                  size: 21,
+                                                  color: foreground,
+                                                ),
+                                                const SizedBox(height: 2),
+                                                Text(
+                                                  _labels[index],
+                                                  maxLines: 1,
+                                                  softWrap: false,
+                                                  overflow: TextOverflow.fade,
+                                                  style: TextStyle(
+                                                    fontSize: 9.5,
+                                                    height: 1,
+                                                    fontWeight: focus > 0.5
+                                                        ? FontWeight.w800
+                                                        : FontWeight.w600,
+                                                    letterSpacing: -0.08,
+                                                    color: foreground,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              }
+
+                              return GestureDetector(
+                                behavior: HitTestBehavior.opaque,
+                                onHorizontalDragStart:
+                                    (DragStartDetails details) {
+                                      _beginDrag(
+                                        details.localPosition.dx,
+                                        constraints.maxWidth,
+                                      );
+                                    },
+                                onHorizontalDragUpdate:
+                                    (DragUpdateDetails details) {
+                                      _updateDrag(
+                                        details.localPosition.dx,
+                                        constraints.maxWidth,
+                                        details.delta.dx,
+                                      );
+                                    },
+                                onHorizontalDragEnd: (details) => _settleDrag(
+                                  details.primaryVelocity ?? 0,
+                                  constraints.maxWidth,
+                                ),
+                                onHorizontalDragCancel: _settleDrag,
+                                child: Stack(
+                                  clipBehavior: Clip.none,
+                                  children: <Widget>[
+                                    Positioned(
+                                      left:
+                                          (itemWidth * page) +
+                                          3 -
+                                          (_elasticity.value < 0
+                                              ? _elasticity.value.abs() * 11
+                                              : 0),
+                                      top: 1,
+                                      width:
+                                          itemWidth -
+                                          6 +
+                                          (_elasticity.value.abs() * 11),
+                                      height: 54,
+                                      child: Transform.scale(
+                                        scaleY:
+                                            1 -
+                                            (_elasticity.value.abs() * 0.028),
+                                        child: DecoratedBox(
+                                          decoration: BoxDecoration(
+                                            gradient: LinearGradient(
+                                              begin: Alignment.topLeft,
+                                              end: Alignment.bottomRight,
+                                              colors: <Color>[
+                                                Colors.white.withValues(
+                                                  alpha: dark ? 0.13 : 0.48,
+                                                ),
+                                                indicatorColor.withValues(
+                                                  alpha: dark ? 0.14 : 0.10,
+                                                ),
+                                                colors.surface.withValues(
+                                                  alpha: dark ? 0.28 : 0.34,
+                                                ),
+                                              ],
+                                              stops: const <double>[0, 0.52, 1],
+                                            ),
+                                            borderRadius: BorderRadius.circular(
+                                              17 -
+                                                  (_elasticity.value.abs() *
+                                                      1.0),
+                                            ),
+                                            border: Border.all(
+                                              color: Color.lerp(
+                                                Colors.white.withValues(
+                                                  alpha: dark ? 0.14 : 0.52,
+                                                ),
+                                                indicatorColor.withValues(
+                                                  alpha: dark ? 0.24 : 0.20,
+                                                ),
+                                                0.45,
+                                              )!,
+                                              width: 0.7,
+                                            ),
+                                            boxShadow: <BoxShadow>[
+                                              BoxShadow(
+                                                color: indicatorColor
+                                                    .withValues(
+                                                      alpha: dark ? 0.10 : 0.07,
+                                                    ),
+                                                blurRadius: 12,
+                                                spreadRadius: -5,
+                                                offset: const Offset(0, 4),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                    Row(
+                                      children: List<Widget>.generate(
+                                        _screens.length,
+                                        navItem,
+                                        growable: false,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            },
+                      );
+                    },
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class BottomBarItem extends StatelessWidget {
+  const BottomBarItem({
+    required this.label,
+    required this.icon,
+    required this.selected,
+    required this.onTap,
+    super.key,
+  });
+
+  final String label;
+  final IconData icon;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme colors = Theme.of(context).colorScheme;
+    final Color foreground = selected
+        ? colors.primary
+        : colors.onSurfaceVariant;
+
+    return PressScale(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOutCubic,
+        decoration: BoxDecoration(
+          color: selected
+              ? colors.primary.withValues(alpha: 0.11)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(17),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: <Widget>[
+            Icon(icon, color: foreground, size: 21),
+            const SizedBox(height: 2),
+            Text(
+              label,
+              style: TextStyle(
+                color: foreground,
+                fontSize: 10.5,
+                fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}

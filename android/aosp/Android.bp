@@ -1,0 +1,47 @@
+// Peridot Essential prebuilt integration for the product partition.
+
+package {
+    default_applicable_licenses: ["Android-Apache-2.0"],
+}
+
+android_app_import {
+    name: "PeridotEssential",
+    apk: "prebuilt/PeridotEssential.apk",
+    presigned: true,
+    preprocessed: true,
+    product_specific: true,
+    required: ["peridot_daemon"],
+    dex_preopt: {
+        enabled: false,
+    },
+}
+
+cc_prebuilt_binary {
+    name: "peridot_daemon",
+    srcs: ["prebuilt/peridot_daemon"],
+    compile_multilib: "64",
+    product_specific: true,
+    shared_libs: [
+        "libbinder_ndk",
+        "libc",
+        "libdl",
+    ],
+    strip: {
+        none: true,
+    },
+    init_rc: ["peridot_daemon.rc"],
+}
+
+cc_prebuilt_binary {
+    name: "peridot_ctl",
+    srcs: ["prebuilt/peridot_ctl"],
+    compile_multilib: "64",
+    product_specific: true,
+    shared_libs: [
+        "libc",
+        "libdl",
+    ],
+    strip: {
+        none: true,
+    },
+}

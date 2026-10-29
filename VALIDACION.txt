@@ -1,0 +1,9 @@
+Peridot identity + Sconfig UI / peridot.4
+103 unitarias + 3 integraciones PASS.
+cargo check --locked Android ARM64 host+daemon PASS (31 avisos de código legado sin uso).
+Dart format main.dart + peridot_backend.dart PASS.
+XML/package/JNI mapping PASS.
+Contratos módulo/versión/watchdog PASS.
+17 scripts bash -n PASS; workflow YAML + comandos run PASS.
+Iconos y mipmaps nuevos inspeccionados; PNG maestro generado y variantes integradas.
+APK completo y UI renderizada en teléfono: no probados en esta sesión.

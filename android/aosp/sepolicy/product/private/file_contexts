@@ -1,0 +1,2 @@
+/product/bin/peridot_daemon                     u:object_r:peridot_daemon_exec:s0
+/data/system/peridot-essential(/.*)?            u:object_r:peridot_daemon_data_file:s0

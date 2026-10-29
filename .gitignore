@@ -1,0 +1,46 @@
+# Rust
+target/
+
+# Flutter / Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+build/
+
+# Android packaging output
+out/
+dist/
+*.apk
+*.aab
+*.idsig
+android/aosp/prebuilt/
+
+# Native build
+*.o
+*.a
+*.so
+.cxx/
+cmake-build-*/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Local machine
+local.properties
+.env
+__pycache__/
+
+# Logs / captures
+*.log
+*.trace
+perf-captures/
+
+# Development signing material
+*.jks
+*.keystore
+# Locally built pinned Flutter runtime binaries
+runtime/flutter-engine/prebuilt/
