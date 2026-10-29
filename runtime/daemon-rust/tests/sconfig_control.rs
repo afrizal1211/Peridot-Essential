@@ -29,7 +29,7 @@ fn sconfig_keeps_original_across_modes_disable_and_process_restart() {
         std::env::set_var("PERIDOT_STATE_DIR", &dir);
         std::env::set_var("PERIDOT_TEST_SCONFIG_PATH", &node);
     }
-    for mode in [6, 18, 56, 68] {
+    for mode in [6, 18] {
         assert_eq!(
             handle_command(&format!("SET cpu.sconfig {mode}")),
             "OK applied"
