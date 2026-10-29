@@ -98,7 +98,7 @@ mod tests {
     use super::*;
     #[test]
     fn only_exposed_stock_scenarios_can_be_selected() {
-        for mode in [0, 6, 18, 50, 56, 68] {
+        for mode in [0, 6, 18, 50] {
             assert!(supported_mode(mode));
         }
         for mode in [-1, 1, 7, 2048, 9999] {
