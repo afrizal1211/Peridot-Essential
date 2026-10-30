@@ -81,7 +81,7 @@ fn control(key: &str) -> Option<Control> {
         "gpu" => Some(Control::Gpu),
         "refresh" => Some(Control::Refresh),
         "cores" => Some(Control::CpuCores),
-        _ => [0, 2, 5, 7].into_iter().find_map(|p| {
+        _ => [0, 3, 7].into_iter().find_map(|p| {
             if key == format!("range{p}") {
                 Some(Control::CpuRange(p))
             } else if key == format!("governor{p}") {
@@ -103,21 +103,16 @@ fn copy_preference(c: &Control, from: &PersistedState, to: &mut PersistedState) 
             to.cpu_min_freq0 = from.cpu_min_freq0;
             to.cpu_max_freq0 = from.cpu_max_freq0;
         }
-        Control::CpuRange(2) => {
-            to.cpu_min_freq2 = from.cpu_min_freq2;
-            to.cpu_max_freq2 = from.cpu_max_freq2;
-        }
-        Control::CpuRange(5) => {
-            to.cpu_min_freq5 = from.cpu_min_freq5;
-            to.cpu_max_freq5 = from.cpu_max_freq5;
+        Control::CpuRange(3) => {
+            to.cpu_min_freq3 = from.cpu_min_freq3;
+            to.cpu_max_freq3 = from.cpu_max_freq3;
         }
         Control::CpuRange(7) => {
             to.cpu_min_freq7 = from.cpu_min_freq7;
             to.cpu_max_freq7 = from.cpu_max_freq7;
         }
         Control::CpuGovernor(0) => to.cpu0 = from.cpu0.clone(),
-        Control::CpuGovernor(2) => to.cpu2 = from.cpu2.clone(),
-        Control::CpuGovernor(5) => to.cpu5 = from.cpu5.clone(),
+        Control::CpuGovernor(3) => to.cpu3 = from.cpu3.clone(),
         Control::CpuGovernor(7) => to.cpu7 = from.cpu7.clone(),
         Control::Gpu => {
             to.perf = from.perf;
@@ -271,8 +266,7 @@ impl Hardware for Adapter {
                 set_cpu_governor(*p as i32, v)?;
                 mutate_persisted_state(|s| match p {
                     0 => s.cpu0 = v.clone(),
-                    2 => s.cpu2 = v.clone(),
-                    5 => s.cpu5 = v.clone(),
+                    3 => s.cpu3 = v.clone(),
                     7 => s.cpu7 = v.clone(),
                     _ => {}
                 })
@@ -625,7 +619,7 @@ fn capabilities() -> Result<Capabilities, String> {
             caps.refresh.insert(0);
         }
     }
-    for p in [0, 2, 5, 7] {
+    for p in [0, 3, 7] {
         let table = cpu_available_frequencies(p as i32)
             .into_iter()
             .map(|v| v as u32)
@@ -660,7 +654,7 @@ fn capabilities() -> Result<Capabilities, String> {
 fn capabilities_json() -> Result<Value, String> {
     let caps = capabilities()?;
     let mut cpu = json!({});
-    for p in [0, 2, 5, 7] {
+    for p in [0, 3, 7] {
         cpu[p.to_string()] = json!({"frequencies":caps.cpu_frequencies.get(&p),"governors":caps.cpu_governors.get(&p)});
     }
     Ok(

@@ -63,6 +63,32 @@ fn app_log(message: &'static [u8]) {
     }
 }
 
+/// Host-side ring buffer for in-app log viewer. Capped at 100 entries.
+/// Format: "timestamp source LEVEL message|next|..."
+const HOST_LOG_CAP: usize = 100;
+static HOST_LOG: std::sync::OnceLock<std::sync::Mutex<Vec<String>>> =
+    std::sync::OnceLock::new();
+
+fn host_log() -> &'static std::sync::Mutex<Vec<String>> {
+    HOST_LOG.get_or_init(|| std::sync::Mutex::new(Vec::with_capacity(HOST_LOG_CAP)))
+}
+
+/// Push a host-side log entry into the in-app ring buffer.
+/// Skipped: mirror to logcat (needs static-buffer path; add when device logs wanted).
+fn log_host(source: &str, level: &str, msg: &str) {
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let entry = format!("{ts} {source} {level} {msg}");
+    if let Ok(mut buf) = host_log().lock() {
+        if buf.len() >= HOST_LOG_CAP {
+            buf.remove(0);
+        }
+        buf.push(entry);
+    }
+}
+
 struct Cache {
     ready: AtomicI32,
     action_state: AtomicI32,
@@ -79,9 +105,9 @@ struct Cache {
     cpu_online_mask: AtomicU32,
     cpu_freq_khz: [AtomicI64; 8],
     cpu_gov0: AtomicI32,
-    cpu_gov2: AtomicI32,
+    cpu_gov3: AtomicI32,
     cpu_gov7: AtomicI32,
-    cpu_available_mhz: [Mutex<Vec<i32>>; 4],
+    cpu_available_mhz: [Mutex<Vec<i32>>; 3],
     gpu_gov: AtomicI32,
     io_scheduler: AtomicI32,
     touch_hal: AtomicI32,
@@ -117,7 +143,7 @@ impl Cache {
             cpu_online_mask: AtomicU32::new(0),
             cpu_freq_khz: std::array::from_fn(|_| AtomicI64::new(-1)),
             cpu_gov0: AtomicI32::new(-1),
-            cpu_gov2: AtomicI32::new(-1),
+            cpu_gov3: AtomicI32::new(-1),
             cpu_gov7: AtomicI32::new(-1),
             cpu_available_mhz: std::array::from_fn(|_| Mutex::new(Vec::new())),
             gpu_gov: AtomicI32::new(-1),
@@ -159,6 +185,40 @@ enum Command {
     GpuGovernor(i32),
     IoScheduler(i32),
     Extended(i32, i32, i32),
+}
+
+fn command_label(c: &Command) -> &'static str {
+    match c {
+        Command::Refresh => "refresh",
+        Command::Charging(_) => "charging",
+        Command::BypassCharging(_) => "bypass_charging",
+        Command::Touch(_) => "touch",
+        Command::DisplayColor(_) => "display_color",
+        Command::DisplayTemp(_) => "display_temp",
+        Command::Sunlight(_) => "sunlight",
+        Command::Silky(_) => "silky",
+        Command::Video(_) => "video",
+        Command::Dolby(_) => "dolby",
+        Command::Performance(_) => "performance",
+        Command::CpuGovernor(p, _) => match p {
+            0 => "cpu_gov0",
+            3 => "cpu_gov3",
+            7 => "cpu_gov7",
+            _ => "cpu_gov",
+        },
+        Command::GpuGovernor(_) => "gpu_gov",
+        Command::IoScheduler(_) => "io_scheduler",
+        Command::Extended(op, _, _) => match op {
+            18 => "cpu_manual",
+            19 => "cpu_min_freq",
+            20 => "cpu_max_freq",
+            21 => "cpu_range",
+            22 => "gpu_power_policy",
+            23 => "cpu_freq_reset",
+            31 => "bypass_threshold",
+            _ => "extended",
+        },
+    }
 }
 
 struct Runtime {
@@ -546,6 +606,33 @@ pub unsafe extern "C" fn peridot_backend_app_controls_exchange(
     reply.len() as i32
 }
 
+/// Return merged daemon + host logs for the in-app log viewer.
+/// Writes "timestamp source LEVEL message|..." into `output`; returns length,
+/// or -1 on bad args, -2 when output too small.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn peridot_backend_get_logs(output: *mut u8, capacity: i32) -> i32 {
+    if output.is_null() || !(1..=1_048_576).contains(&capacity) {
+        return -1;
+    }
+    // Pull daemon log ring once per open.
+    let daemon_lines = match request("GET logs") {
+        Ok(body) if !body.is_empty() => body.split('|').map(str::to_owned).collect::<Vec<_>>(),
+        _ => Vec::new(),
+    };
+    let mut merged: Vec<String> = daemon_lines;
+    if let Ok(buf) = host_log().lock() {
+        merged.extend(buf.iter().cloned());
+    }
+    let reply = merged.join("|");
+    if reply.len() > capacity as usize {
+        return -2;
+    }
+    unsafe {
+        std::ptr::copy_nonoverlapping(reply.as_ptr(), output, reply.len());
+    }
+    reply.len() as i32
+}
+
 fn parse_i32(value: Option<&String>) -> i32 {
     value.and_then(|v| v.parse::<i32>().ok()).unwrap_or(-1)
 }
@@ -625,8 +712,7 @@ fn cpu_gov_code(value: &str) -> i32 {
 fn cpu_policy_slot(policy: i32) -> Option<usize> {
     match policy {
         0 => Some(0),
-        2 => Some(1),
-        5 => Some(3),
+        3 => Some(1),
         7 => Some(2),
         _ => None,
     }
@@ -709,16 +795,12 @@ fn refresh(cache: &Cache) -> Result<(), String> {
         map.get("gov0").map(|v| cpu_gov_code(v)).unwrap_or(-1),
         Ordering::Release,
     );
-    cache.cpu_gov2.store(
-        map.get("gov2").map(|v| cpu_gov_code(v)).unwrap_or(-1),
+    cache.cpu_gov3.store(
+        map.get("gov3").map(|v| cpu_gov_code(v)).unwrap_or(-1),
         Ordering::Release,
     );
     cache.cpu_gov7.store(
         map.get("gov7").map(|v| cpu_gov_code(v)).unwrap_or(-1),
-        Ordering::Release,
-    );
-    cache.extended[127].store(
-        map.get("gov5").map(|v| cpu_gov_code(v)).unwrap_or(-1),
         Ordering::Release,
     );
     cache.gpu_gov.store(
@@ -775,7 +857,7 @@ fn refresh(cache: &Cache) -> Result<(), String> {
         ("perf_verified", 12),
         ("perf_verify_ok", 13),
         ("cpu_drift0", 14),
-        ("cpu_drift2", 15),
+        ("cpu_drift3", 15),
         ("cpu_drift7", 16),
         ("gpu_drift", 17),
         ("io_drift", 18),
@@ -814,8 +896,8 @@ fn refresh(cache: &Cache) -> Result<(), String> {
         ("gpu_uncap_active", 52),
         ("cpu_min0", 53),
         ("cpu_max0", 54),
-        ("cpu_min2", 55),
-        ("cpu_max2", 56),
+        ("cpu_min3", 55),
+        ("cpu_max3", 56),
         ("cpu_min7", 57),
         ("cpu_max7", 58),
         ("gpu_power_policy", 59),
@@ -829,19 +911,14 @@ fn refresh(cache: &Cache) -> Result<(), String> {
         ("touch_source_rate_x10", 67),
         ("cpu_live_min0", 68),
         ("cpu_live_max0", 69),
-        ("cpu_live_min2", 70),
-        ("cpu_live_max2", 71),
+        ("cpu_live_min3", 70),
+        ("cpu_live_max3", 71),
         ("cpu_live_min7", 72),
         ("cpu_live_max7", 73),
         ("cpu_freq_ack", 74),
         ("cpu_freq_drift0", 75),
-        ("cpu_freq_drift2", 76),
+        ("cpu_freq_drift3", 76),
         ("cpu_freq_drift7", 77),
-        ("cpu_min5", 122),
-        ("cpu_max5", 123),
-        ("cpu_live_min5", 124),
-        ("cpu_live_max5", 125),
-        ("cpu_freq_drift5", 126),
         ("display_native_density", 78),
         ("touch_resampler_path", 79),
         ("touch_resampler_error", 80),
@@ -893,9 +970,8 @@ fn refresh(cache: &Cache) -> Result<(), String> {
 
     for (slot, key) in [
         (0, "cpu_avail0"),
-        (1, "cpu_avail2"),
+        (1, "cpu_avail3"),
         (2, "cpu_avail7"),
-        (3, "cpu_avail5"),
     ] {
         let Some(raw) = map.get(key) else {
             continue;
@@ -978,7 +1054,7 @@ fn perform(command: Command) -> Result<(), String> {
         Command::Performance(v) if (0..=3).contains(&v) => {
             request(&format!("SET perf {v}")).map(|_| ())
         }
-        Command::CpuGovernor(policy, code) if matches!(policy, 0 | 2 | 5 | 7) => {
+        Command::CpuGovernor(policy, code) if matches!(policy, 0 | 3 | 7) => {
             let name = cpu_governor_name(code).ok_or("invalid cpu governor code")?;
             request(&format!("SET cpu.gov {policy} {name}")).map(|_| ())
         }
@@ -1113,7 +1189,7 @@ fn perform(command: Command) -> Result<(), String> {
                     let cmd_str = format!("SET gpu.power_policy {pol}");
                     return request(&cmd_str).map(|_| ());
                 }
-                23 if matches!(a, 0 | 2 | 5 | 7) => {
+                23 if matches!(a, 0 | 3 | 7) => {
                     let cmd_str = format!("SET cpu.freq_reset {a}");
                     return request(&cmd_str).map(|_| ());
                 }
@@ -1474,10 +1550,15 @@ pub extern "C" fn peridot_backend_start() -> i32 {
 }
 
 fn send(command: Command) -> i32 {
-    runtime()
+    let label = command_label(&command);
+    let ok = runtime()
         .and_then(|rt| rt.tx.send(command).ok())
         .map(|_| 1)
-        .unwrap_or(0)
+        .unwrap_or(0);
+    if ok == 0 {
+        log_host(if label == "refresh" { "daemon" } else { "backend" }, "ERROR", &format!("send failed: {label}"));
+    }
+    ok
 }
 
 fn send_charging(command: Command) -> i32 {
@@ -1614,8 +1695,7 @@ pub extern "C" fn peridot_backend_get_cpu_governor(policy: i32) -> i32 {
     runtime()
         .map(|r| match policy {
             0 => r.cache.cpu_gov0.load(Ordering::Acquire),
-            2 => r.cache.cpu_gov2.load(Ordering::Acquire),
-            5 => r.cache.extended[127].load(Ordering::Acquire),
+            3 => r.cache.cpu_gov3.load(Ordering::Acquire),
             7 => r.cache.cpu_gov7.load(Ordering::Acquire),
             _ => -1,
         })

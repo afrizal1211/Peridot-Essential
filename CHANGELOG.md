@@ -1,5 +1,23 @@
 # Peridot Essential changelog
 
+## 1.18.9
+
+Bugfix + observability release. Protocol stays `peridot.5`.
+
+- Correct the CPU cluster map on SM8635. The kernel only registers a policy
+  per frequency domain (`policy0`/`policy3`/`policy7` for little 0-2 / big 3-6 /
+  prime 7); the old `[0,2,5,7]` list addressed ghost `policy2`/`policy5` nodes,
+  so the big cluster was never controllable and its reads fell back to 0. All
+  policy references now use `[0,3,7]` across daemon, host bridge and UI. The
+  big cluster (previously split into two phantom clusters) is now a single
+  policy3 spanning cores 3-6.
+- Add in-app logging so feature failures are visible inside the app, not just
+  adb logcat. A Flutter ring buffer records every backend set result; the
+  host bridge and daemon each keep a ring of failures (bypass policy, sconfig
+  restore, charging uevent apply, socket send). A new `GET logs` command and
+  `peridot_backend_get_logs` FFI merge them, and a Diagnostics → Application &
+  System Logs screen renders the entries with refresh and clear.
+
 ## 1.18.8
 
 Peridot (`POCO F6`, SM8635) hardware interface release. Protocol bumped to

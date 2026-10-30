@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:ffi' as ffi;
+import 'dart:typed_data';
 
+import '../peridot_logger.dart';
 import 'backend_connection.dart';
 import 'system_colors_state.dart';
 import 'system_colors_preferences.dart';
@@ -38,8 +40,7 @@ final class PeridotBackendSnapshot {
     required this.cpuOnlineMask,
     required this.cpuFreqKhz,
     required this.cpuGovernor0,
-    required this.cpuGovernor2,
-    required this.cpuGovernor5,
+    required this.cpuGovernor3,
     required this.cpuGovernor7,
     required this.gpuGovernor,
     required this.ufsScheduler,
@@ -76,8 +77,7 @@ final class PeridotBackendSnapshot {
   final int cpuOnlineMask;
   final List<int> cpuFreqKhz;
   final int cpuGovernor0;
-  final int cpuGovernor2;
-  final int cpuGovernor5;
+  final int cpuGovernor3;
   final int cpuGovernor7;
   final int gpuGovernor;
   final int ufsScheduler;
@@ -120,6 +120,13 @@ typedef _I32ToI32Native = ffi.Int32 Function(ffi.Int32);
 typedef _I32ToI32Dart = int Function(int);
 typedef _SetTwoI32Native = ffi.Int32 Function(ffi.Int32, ffi.Int32);
 typedef _SetTwoI32Dart = int Function(int, int);
+typedef _GetLogsNative = ffi.Int32 Function(
+    ffi.Pointer<ffi.Uint8>, ffi.Int32);
+typedef _GetLogsDart = int Function(ffi.Pointer<ffi.Uint8>, int);
+typedef _LogsAllocNative = ffi.Pointer<ffi.Void> Function(ffi.IntPtr);
+typedef _LogsAllocDart = ffi.Pointer<ffi.Void> Function(int);
+typedef _LogsFreeNative = ffi.Void Function(ffi.Pointer<ffi.Void>);
+typedef _LogsFreeDart = void Function(ffi.Pointer<ffi.Void>);
 
 final class PeridotBackend {
   PeridotBackend._();
@@ -157,6 +164,9 @@ final class PeridotBackend {
   late _SetTwoI32Dart _setCpuGovernorNative;
   late _I32ToI32Dart _cpuAvailableCountNative;
   late _SetTwoI32Dart _cpuAvailableFreqNative;
+  late _GetLogsDart _logsNative;
+  late _LogsAllocDart _mallocNative;
+  late _LogsFreeDart _freeNative;
   late _I32Dart _gpuGovernorNative;
   late _SetI32Dart _setGpuGovernorNative;
   late _I32Dart _ufsSchedulerNative;
@@ -208,8 +218,7 @@ final class PeridotBackend {
     cpuOnlineMask: 0,
     cpuFreqKhz: <int>[-1, -1, -1, -1, -1, -1, -1, -1],
     cpuGovernor0: -1,
-    cpuGovernor2: -1,
-    cpuGovernor5: -1,
+    cpuGovernor3: -1,
     cpuGovernor7: -1,
     gpuGovernor: -1,
     ufsScheduler: -1,
@@ -450,6 +459,13 @@ final class PeridotBackend {
         'peridot_host_request_photo_permission',
       );
 
+      final DynamicLibrary libc = DynamicLibrary.open('libc.so');
+      _mallocNative = libc.lookupFunction<_LogsAllocNative, _LogsAllocDart>('malloc');
+      _freeNative = libc.lookupFunction<_LogsFreeNative, _LogsFreeDart>('free');
+      _logsNative = lib.lookupFunction<_GetLogsNative, _GetLogsDart>(
+        'peridot_backend_get_logs',
+      );
+
       _lib = lib;
       _started = _startNative() == 1;
       if (_started) {
@@ -488,8 +504,7 @@ final class PeridotBackend {
       cpuOnlineMask: _cpuOnlineMaskNative(),
       cpuFreqKhz: List<int>.generate(8, _cpuFreqNative, growable: false),
       cpuGovernor0: _cpuGovernorNative(0),
-      cpuGovernor2: _cpuGovernorNative(2),
-      cpuGovernor5: _cpuGovernorNative(5),
+      cpuGovernor3: _cpuGovernorNative(3),
       cpuGovernor7: _cpuGovernorNative(7),
       gpuGovernor: _gpuGovernorNative(),
       ufsScheduler: _ufsSchedulerNative(),
@@ -508,8 +523,13 @@ final class PeridotBackend {
     _controller.add(next);
   }
 
-  bool _queue(int rc) {
+  bool _queue(int rc, String label) {
     final bool accepted = _started && rc == 1;
+    if (accepted) {
+      PeridotLogger().info('backend', label);
+    } else if (_started) {
+      PeridotLogger().error('backend', '$label queued FAILED');
+    }
     if (!accepted) return false;
 
     Timer(const Duration(milliseconds: 24), _poll);
@@ -522,7 +542,7 @@ final class PeridotBackend {
 
   bool setChargingProfile(int watts) {
     if (!const <int>{0, 25, 33, 65, 85, 90}.contains(watts)) return false;
-    return _queue(_setChargingModeNative(watts));
+    return _queue(_setChargingModeNative(watts), 'set charging profile $watts');
   }
 
   bool setChargingBoost(bool enabled) => setChargingProfile(enabled ? 90 : 0);
@@ -557,22 +577,22 @@ final class PeridotBackend {
       const <int>{0, 20, 40, 80, 90}.contains(percent) &&
       setExtendedOperation(31, percent);
   bool setBypassCharging(bool enabled) =>
-      _queue(_setBypassChargingNative(enabled ? 1 : 0));
+      _queue(_setBypassChargingNative(enabled ? 1 : 0), 'set bypass charging $enabled');
   bool setTouchProfile(int profile) {
     if (profile != 0 && profile != 1) return false;
-    return _queue(_setTouchStateNative(profile));
+    return _queue(_setTouchStateNative(profile), 'set touch profile $profile');
   }
 
   // Kept for older call sites outside the Flutter screen bundle. Enabled maps
   // to Xiaomi game mode; disabled selects OEM (game mode off).
   bool setTouchBoost(bool enabled) => setTouchProfile(enabled ? 1 : 0);
-  bool setDisplayColor(int mode) => _queue(_setDisplayColorNative(mode));
-  bool setDisplayTemperature(int mode) => _queue(_setDisplayTempNative(mode));
-  bool setSunlight(bool enabled) => _queue(_setSunlightNative(enabled ? 1 : 0));
-  bool setSilky(bool enabled) => _queue(_setSilkyNative(enabled ? 1 : 0));
+  bool setDisplayColor(int mode) => _queue(_setDisplayColorNative(mode), 'set display color $mode');
+  bool setDisplayTemperature(int mode) => _queue(_setDisplayTempNative(mode), 'set display temp $mode');
+  bool setSunlight(bool enabled) => _queue(_setSunlightNative(enabled ? 1 : 0), 'set sunlight $enabled');
+  bool setSilky(bool enabled) => _queue(_setSilkyNative(enabled ? 1 : 0), 'set silky $enabled');
   bool setVideoEnhancement(bool enabled) =>
-      _queue(_setVideoNative(enabled ? 1 : 0));
-  bool setDolbyVision(bool enabled) => _queue(_setDolbyNative(enabled ? 1 : 0));
+      _queue(_setVideoNative(enabled ? 1 : 0), 'set video $enabled');
+  bool setDolbyVision(bool enabled) => _queue(_setDolbyNative(enabled ? 1 : 0), 'set dolby $enabled');
   bool setPerformanceProfile(int profile) {
     if (_latest.performanceProfile != profile) {
       _latest = PeridotBackendSnapshot(
@@ -592,8 +612,7 @@ final class PeridotBackend {
         cpuOnlineMask: _latest.cpuOnlineMask,
         cpuFreqKhz: _latest.cpuFreqKhz,
         cpuGovernor0: _latest.cpuGovernor0,
-        cpuGovernor2: _latest.cpuGovernor2,
-        cpuGovernor5: _latest.cpuGovernor5,
+        cpuGovernor3: _latest.cpuGovernor3,
         cpuGovernor7: _latest.cpuGovernor7,
         gpuGovernor: switch (profile) {
           0 => 0, // OEM dummy
@@ -618,13 +637,13 @@ final class PeridotBackend {
         _controller.add(_latest);
       }
     }
-    return _queue(_setPerformanceNative(profile));
+    return _queue(_setPerformanceNative(profile), 'set perf profile $profile');
   }
 
   bool setCpuGovernor(int policy, int code) =>
-      _queue(_setCpuGovernorNative(policy, code));
-  bool setGpuGovernor(int code) => _queue(_setGpuGovernorNative(code));
-  bool setUfsScheduler(int code) => _queue(_setUfsSchedulerNative(code));
+      _queue(_setCpuGovernorNative(policy, code), 'set cpu$policy governor');
+  bool setGpuGovernor(int code) => _queue(_setGpuGovernorNative(code), 'set gpu governor');
+  bool setUfsScheduler(int code) => _queue(_setUfsSchedulerNative(code), 'set ufs scheduler');
   bool openSupportLink(int code) {
     if (!_started) return false;
     return _openSupportLinkNative(code) == 1;
@@ -666,7 +685,17 @@ final class PeridotBackend {
 
   bool setExtendedOperation(int op, int a, [int b = 0]) {
     if (!_started || _lib == null) return false;
-    final bool res = _queue(_backendSetNative(op, a, b));
+    final String opLabel = switch (op) {
+      18 => 'cpu core online a=$a',
+      19 => 'cpu${(a)} min freq',
+      20 => 'cpu${(a)} max freq',
+      21 => 'cpu${(a)} range',
+      22 => 'gpu power policy',
+      23 => 'cpu${(a)} freq reset',
+      31 => 'bypass threshold $a',
+      _ => 'op $op a=$a b=$b',
+    };
+    final bool res = _queue(_backendSetNative(op, a, b), 'set $opLabel');
     refresh();
     return res;
   }
@@ -792,7 +821,7 @@ final class PeridotBackend {
   List<int> cpuAvailableFrequencies(int policy) {
     if (!_started ||
         _lib == null ||
-        !const <int>{0, 2, 5, 7}.contains(policy)) {
+        !const <int>{0, 3, 7}.contains(policy)) {
       return const <int>[];
     }
 
@@ -812,41 +841,36 @@ final class PeridotBackend {
 
   int cpuTargetMinFrequency(int policy) => switch (policy) {
     0 => extendedValue(53),
-    2 => extendedValue(55),
+    3 => extendedValue(55),
     7 => extendedValue(57),
-    5 => extendedValue(122),
     _ => -1,
   };
 
   int cpuTargetMaxFrequency(int policy) => switch (policy) {
     0 => extendedValue(54),
-    2 => extendedValue(56),
+    3 => extendedValue(56),
     7 => extendedValue(58),
-    5 => extendedValue(123),
     _ => -1,
   };
 
   int cpuLiveMinFrequency(int policy) => switch (policy) {
     0 => extendedValue(68),
-    2 => extendedValue(70),
+    3 => extendedValue(70),
     7 => extendedValue(72),
-    5 => extendedValue(124),
     _ => -1,
   };
 
   int cpuLiveMaxFrequency(int policy) => switch (policy) {
     0 => extendedValue(69),
-    2 => extendedValue(71),
+    3 => extendedValue(71),
     7 => extendedValue(73),
-    5 => extendedValue(125),
     _ => -1,
   };
 
   int cpuFrequencyDrift(int policy) => switch (policy) {
     0 => extendedValue(75),
-    2 => extendedValue(76),
+    3 => extendedValue(76),
     7 => extendedValue(77),
-    5 => extendedValue(126),
     _ => -1,
   };
 
@@ -861,6 +885,32 @@ final class PeridotBackend {
   bool requestPhotoPermission() {
     if (!_started) return false;
     return _requestPhotoPermissionNative() == 1;
+  }
+
+  /// Fetch daemon + host log entries for the in-app log viewer.
+  /// Returns pipe-separated "timestamp source LEVEL message" entries.
+  /// Skipped: error handling for malloc failures (returns empty on OOM).
+  List<String> fetchLogs() {
+    if (!_started) return [];
+    // 64 KB buffer — sufficient for 100 daemon entries (~250 bytes each) plus
+    // 100 host entries (~120 bytes each) = ~37 KB. Falls back to empty on
+    // symbol-not-found or alloc failure.
+    const int cap = 65536;
+    final ffi.Pointer<ffi.Void> buf = _mallocNative(cap);
+    if (buf == ffi.nullptr) return [];
+    try {
+      final ffi.Pointer<ffi.Uint8> out = buf.cast<ffi.Uint8>();
+      final int len = _logsNative(out, cap);
+      if (len <= 0 || len > cap) return [];
+      // len bytes written at buf — decode UTF-8.
+      final Uint8List view = out.asTypedList(len);
+      final String text = String.fromCharCodes(view);
+      return text.isEmpty ? [] : text.split('|');
+    } catch (_) {
+      return [];
+    } finally {
+      _freeNative(buf);
+    }
   }
 
   void refresh() {

@@ -1094,7 +1094,7 @@ class _PerAppEditorState extends State<_PerAppEditor> {
           ),
         ),
         const SizedBox(height: 14),
-        for (final int policy in <int>[0, 2, 5, 7]) _cluster(policy, colors),
+        for (final int policy in <int>[0, 3, 7]) _cluster(policy, colors),
         if (widget.capabilities['cores'] == true)
           SurfaceCard(
             child: Column(

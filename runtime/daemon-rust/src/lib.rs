@@ -821,6 +821,7 @@ fn maintain_bypass_policy() {
         if let Err(error) = reconcile_bypass(true, state.bypass_threshold, false) {
             if BYPASS_POLICY_ERROR.swap(1, Ordering::AcqRel) == 0 {
                 eprintln!("PERIDOT_BYPASS_POLICY_FAIL {error}");
+                log_daemon(&format!("BYPASS_POLICY_FAIL {error}"));
             }
         }
     }
@@ -1002,7 +1003,7 @@ fn core_ctl_paths() -> Vec<PathBuf> {
         }
     }
 
-    for policy in [0, 2, 5, 7] {
+    for policy in [0, 3, 7] {
         let path = PathBuf::from(format!(
             "/sys/devices/system/cpu/cpufreq/policy{policy}/core_ctl/enable"
         ));
@@ -1298,7 +1299,7 @@ fn set_cpu_governor(policy: i32, governor: &str) -> Result<(), String> {
         "performance",
         "schedutil",
     ];
-    if !matches!(policy, 0 | 2 | 5 | 7) || !SAFE.contains(&governor) {
+    if !matches!(policy, 0 | 3 | 7) || !SAFE.contains(&governor) {
         return Err("invalid cpu governor request".into());
     }
     let base = format!("/sys/devices/system/cpu/cpufreq/policy{policy}");
@@ -1348,7 +1349,7 @@ fn parse_cpu_time_in_state(raw: &str) -> Vec<i32> {
 }
 
 fn cpu_available_frequencies(policy: i32) -> Vec<i32> {
-    if !matches!(policy, 0 | 2 | 5 | 7) {
+    if !matches!(policy, 0 | 3 | 7) {
         return Vec::new();
     }
 
@@ -1439,8 +1440,7 @@ fn get_cpu_cluster_live_max_freq(policy: i32) -> i32 {
 fn persisted_cpu_range(state: &PersistedState, policy: i32) -> Option<(i32, i32)> {
     let range = match policy {
         0 => (state.cpu_min_freq0, state.cpu_max_freq0),
-        2 => (state.cpu_min_freq2, state.cpu_max_freq2),
-        5 => (state.cpu_min_freq5, state.cpu_max_freq5),
+        3 => (state.cpu_min_freq3, state.cpu_max_freq3),
         7 => (state.cpu_min_freq7, state.cpu_max_freq7),
         _ => return None,
     };
@@ -1464,7 +1464,7 @@ fn validate_cpu_frequency_range_against(
     max_mhz: i32,
     available: &[i32],
 ) -> Result<(), String> {
-    if !matches!(policy, 0 | 2 | 5 | 7) || min_mhz <= 0 || max_mhz <= 0 {
+    if !matches!(policy, 0 | 3 | 7) || min_mhz <= 0 || max_mhz <= 0 {
         return Err("invalid cpu frequency range".into());
     }
     if min_mhz > max_mhz {
@@ -1519,8 +1519,7 @@ fn mtk_powerhal_cpu_range_request(policy: i32, min_mhz: i32, max_mhz: i32) -> St
 fn persisted_cpu_ranges_active(state: &PersistedState) -> bool {
     [
         (state.cpu_min_freq0, state.cpu_max_freq0),
-        (state.cpu_min_freq2, state.cpu_max_freq2),
-        (state.cpu_min_freq5, state.cpu_max_freq5),
+        (state.cpu_min_freq3, state.cpu_max_freq3),
         (state.cpu_min_freq7, state.cpu_max_freq7),
     ]
     .into_iter()
@@ -1691,12 +1690,8 @@ fn set_cpu_cluster_freq_range(policy: i32, min_mhz: i32, max_mhz: i32) -> Result
                         state.cpu_max_freq0 = max_mhz;
                     }
                     2 => {
-                        state.cpu_min_freq2 = min_mhz;
-                        state.cpu_max_freq2 = max_mhz;
-                    }
-                    5 => {
-                        state.cpu_min_freq5 = min_mhz;
-                        state.cpu_max_freq5 = max_mhz;
+                        state.cpu_min_freq3 = min_mhz;
+                        state.cpu_max_freq3 = max_mhz;
                     }
                     7 => {
                         state.cpu_min_freq7 = min_mhz;
@@ -1751,12 +1746,8 @@ fn reset_cpu_cluster_freq_range(policy: i32) -> Result<(), String> {
                         state.cpu_max_freq0 = -1;
                     }
                     2 => {
-                        state.cpu_min_freq2 = -1;
-                        state.cpu_max_freq2 = -1;
-                    }
-                    5 => {
-                        state.cpu_min_freq5 = -1;
-                        state.cpu_max_freq5 = -1;
+                        state.cpu_min_freq3 = -1;
+                        state.cpu_max_freq3 = -1;
                     }
                     7 => {
                         state.cpu_min_freq7 = -1;
@@ -2524,8 +2515,7 @@ struct PersistedState {
     cpu_manual: i32,
     cpu_online_mask: i32,
     cpu0: String,
-    cpu2: String,
-    cpu5: String,
+    cpu3: String,
     cpu7: String,
     gpu: String,
     io: String,
@@ -2541,10 +2531,8 @@ struct PersistedState {
     gpu_power_policy: String,
     cpu_min_freq0: i32,
     cpu_max_freq0: i32,
-    cpu_min_freq2: i32,
-    cpu_min_freq5: i32,
-    cpu_max_freq2: i32,
-    cpu_max_freq5: i32,
+    cpu_min_freq3: i32,
+    cpu_max_freq3: i32,
     cpu_min_freq7: i32,
     cpu_max_freq7: i32,
     cpu_thermal_mode_prev: i32,
@@ -2574,8 +2562,7 @@ impl Default for PersistedState {
             cpu_manual: 0,
             cpu_online_mask: 0xFF,
             cpu0: String::new(),
-            cpu2: String::new(),
-            cpu5: String::new(),
+            cpu3: String::new(),
             cpu7: String::new(),
             gpu: String::new(),
             io: String::new(),
@@ -2591,10 +2578,8 @@ impl Default for PersistedState {
             gpu_power_policy: String::new(),
             cpu_min_freq0: -1,
             cpu_max_freq0: -1,
-            cpu_min_freq2: -1,
-            cpu_min_freq5: -1,
-            cpu_max_freq2: -1,
-            cpu_max_freq5: -1,
+            cpu_min_freq3: -1,
+            cpu_max_freq3: -1,
             cpu_min_freq7: -1,
             cpu_max_freq7: -1,
             cpu_thermal_mode_prev: -1,
@@ -2606,14 +2591,14 @@ impl Default for PersistedState {
 fn legacy_gpu_profile_cpu_signature(state: &PersistedState) -> bool {
     let governors = (
         state.cpu0.as_str(),
-        state.cpu2.as_str(),
+        state.cpu3.as_str(),
         state.cpu7.as_str(),
     );
     let ranges = (
         state.cpu_min_freq0,
         state.cpu_max_freq0,
-        state.cpu_min_freq2,
-        state.cpu_max_freq2,
+        state.cpu_min_freq3,
+        state.cpu_max_freq3,
         state.cpu_min_freq7,
         state.cpu_max_freq7,
     );
@@ -2647,12 +2632,12 @@ fn migrate_legacy_gpu_profile_cpu_state(state: &mut PersistedState) -> bool {
     let reset_legacy_cpu = legacy_gpu_profile_cpu_signature(state);
     if reset_legacy_cpu {
         state.cpu0.clear();
-        state.cpu2.clear();
+        state.cpu3.clear();
         state.cpu7.clear();
         state.cpu_min_freq0 = -1;
         state.cpu_max_freq0 = -1;
-        state.cpu_min_freq2 = -1;
-        state.cpu_max_freq2 = -1;
+        state.cpu_min_freq3 = -1;
+        state.cpu_max_freq3 = -1;
         state.cpu_min_freq7 = -1;
         state.cpu_max_freq7 = -1;
     }
@@ -2662,7 +2647,7 @@ fn migrate_legacy_gpu_profile_cpu_state(state: &mut PersistedState) -> bool {
 }
 
 fn restore_vendor_cpu_defaults() {
-    for policy in [0, 2, 5, 7] {
+    for policy in [0, 3, 7] {
         if let Some((min, max)) = cpu_policy_default_range(policy) {
             let _ = apply_cluster_freq_controls(policy, min, max);
         }
@@ -2672,7 +2657,6 @@ fn restore_vendor_cpu_defaults() {
 
 static PERSISTED_STATE: OnceLock<Mutex<PersistedState>> = OnceLock::new();
 static RESOLVED_STATE_DIR: OnceLock<PathBuf> = OnceLock::new();
-
 fn state_dir() -> &'static Path {
     RESOLVED_STATE_DIR
         .get_or_init(|| {
@@ -2684,6 +2668,47 @@ fn state_dir() -> &'static Path {
         })
         .as_path()
 }
+
+/// Ring buffer for in-app visible daemon logs.
+/// Skipped: disk persistence (add when user requests log export).
+const DAEMON_LOG_CAP: usize = 100;
+static DAEMON_LOG: OnceLock<Mutex<Vec<(i64, String)>>> = OnceLock::new();
+
+fn daemon_log() -> &'static Mutex<Vec<(i64, String)>> {
+    DAEMON_LOG.get_or_init(|| Mutex::new(Vec::with_capacity(DAEMON_LOG_CAP)))
+}
+
+/// Push a timestamped message into the daemon ring buffer. Also writes to eprintln
+/// so it shows in logcat under the "peridot_essentiald" tag.
+fn log_daemon(msg: &str) {
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(-1);
+    eprintln!("PERIDOT_LOG {msg}");
+    if let Ok(mut buf) = daemon_log().lock() {
+        if buf.len() >= DAEMON_LOG_CAP {
+            buf.remove(0);
+        }
+        buf.push((ts, msg.to_string()));
+    }
+}
+
+fn get_daemon_logs() -> String {
+    daemon_log()
+        .lock()
+        .map(|buf| {
+            buf.iter()
+                .map(|(ts, msg)| format!("{ts} {msg}"))
+                .collect::<Vec<_>>()
+                .join("|")
+        })
+        .unwrap_or_default()
+}
+
+/// Patches eprintln! calls for key failure paths so they also surface in the
+/// in-app log. Call log_daemon() from failure branches.
+/// Skipped: exhaustive patching of every eprintln! (add per-feature as needed).
 
 fn state_file() -> PathBuf {
     state_dir().join("state.conf")
@@ -2855,8 +2880,7 @@ fn parse_persisted_state(raw: &str) -> PersistedState {
                 }
             }
             "cpu0" => state.cpu0 = value.to_string(),
-            "cpu2" => state.cpu2 = value.to_string(),
-            "cpu5" => state.cpu5 = value.to_string(),
+            "cpu3" => state.cpu3 = value.to_string(),
             "cpu7" => state.cpu7 = value.to_string(),
             "gpu" => state.gpu = value.to_string(),
             "io" => state.io = value.to_string(),
@@ -2908,24 +2932,14 @@ fn parse_persisted_state(raw: &str) -> PersistedState {
                     state.cpu_max_freq0 = v;
                 }
             }
-            "cpu_min_freq2" => {
+            "cpu_min_freq3" => {
                 if let Some(v) = int_value() {
-                    state.cpu_min_freq2 = v;
+                    state.cpu_min_freq3 = v;
                 }
             }
-            "cpu_min_freq5" => {
+            "cpu_max_freq3" => {
                 if let Some(v) = int_value() {
-                    state.cpu_min_freq5 = v;
-                }
-            }
-            "cpu_max_freq2" => {
-                if let Some(v) = int_value() {
-                    state.cpu_max_freq2 = v;
-                }
-            }
-            "cpu_max_freq5" => {
-                if let Some(v) = int_value() {
-                    state.cpu_max_freq5 = v;
+                    state.cpu_max_freq3 = v;
                 }
             }
             "cpu_min_freq7" => {
@@ -3029,8 +3043,7 @@ fn save_persisted_state(state: &PersistedState) -> Result<(), String> {
         state.cpu_online_mask | 0x01
     ));
     out.push_str(&format!("cpu0={}\n", state.cpu0));
-    out.push_str(&format!("cpu2={}\n", state.cpu2));
-    out.push_str(&format!("cpu5={}\n", state.cpu5));
+    out.push_str(&format!("cpu3={}\n", state.cpu3));
     out.push_str(&format!("cpu7={}\n", state.cpu7));
     out.push_str(&format!("gpu={}\n", state.gpu));
     out.push_str(&format!("io={}\n", state.io));
@@ -3046,10 +3059,8 @@ fn save_persisted_state(state: &PersistedState) -> Result<(), String> {
     out.push_str(&format!("gpu_power_policy={}\n", state.gpu_power_policy));
     out.push_str(&format!("cpu_min_freq0={}\n", state.cpu_min_freq0));
     out.push_str(&format!("cpu_max_freq0={}\n", state.cpu_max_freq0));
-    out.push_str(&format!("cpu_min_freq2={}\n", state.cpu_min_freq2));
-    out.push_str(&format!("cpu_min_freq5={}\n", state.cpu_min_freq5));
-    out.push_str(&format!("cpu_max_freq2={}\n", state.cpu_max_freq2));
-    out.push_str(&format!("cpu_max_freq5={}\n", state.cpu_max_freq5));
+    out.push_str(&format!("cpu_min_freq3={}\n", state.cpu_min_freq3));
+    out.push_str(&format!("cpu_max_freq3={}\n", state.cpu_max_freq3));
     out.push_str(&format!("cpu_min_freq7={}\n", state.cpu_min_freq7));
     out.push_str(&format!("cpu_max_freq7={}\n", state.cpu_max_freq7));
     out.push_str(&format!("sconfig_override={}\n", state.sconfig_override));
@@ -3463,8 +3474,7 @@ fn record_successful_command(cmd: &str) -> Result<(), String> {
         }
         return mutate_persisted_state(|state| match policy {
             0 => state.cpu0 = gov.clone(),
-            2 => state.cpu2 = gov.clone(),
-            5 => state.cpu5 = gov.clone(),
+            2 => state.cpu3 = gov.clone(),
             7 => state.cpu7 = gov.clone(),
             _ => {}
         });
@@ -3893,6 +3903,7 @@ fn restore_persisted_state() {
     if state.sconfig_override >= 0 {
         if let Err(error) = sconfig::set(state.sconfig_override) {
             eprintln!("PERIDOT_SCONFIG_RESTORE_FAIL {error}");
+            log_daemon(&format!("SCONFIG_RESTORE_FAIL {error}"));
         }
     }
 
@@ -4020,11 +4031,8 @@ fn restore_persisted_state() {
         let _ = set_cpu_governor(0, &state.cpu0);
     }
 
-    if !state.cpu2.is_empty() {
-        let _ = set_cpu_governor(2, &state.cpu2);
-    }
-    if !state.cpu5.is_empty() {
-        let _ = set_cpu_governor(5, &state.cpu5);
+    if !state.cpu3.is_empty() {
+        let _ = set_cpu_governor(3, &state.cpu3);
     }
 
     if !state.cpu7.is_empty() {
@@ -4070,7 +4078,7 @@ fn restore_persisted_state() {
     };
 
     if cpu_mode_ready {
-        for policy in [0, 2, 5, 7] {
+        for policy in [0, 3, 7] {
             if let Some((min, max)) = persisted_cpu_range(&state, policy) {
                 let _ = apply_cluster_freq_controls(policy, min, max);
             }
@@ -4161,8 +4169,7 @@ fn reassert_persisted_governors() {
 
     for (policy, desired) in [
         (0, state.cpu0.as_str()),
-        (2, state.cpu2.as_str()),
-        (5, state.cpu5.as_str()),
+        (2, state.cpu3.as_str()),
         (7, state.cpu7.as_str()),
     ] {
         if desired.is_empty() {
@@ -4398,6 +4405,7 @@ fn charging_power_supply_event_loop() {
                 .unwrap_or((0, 0));
             if let Err(error) = maintain_charging_state(profile, bypass_charging) {
                 eprintln!("PERIDOT_CHARGING_UEVENT_APPLY_FAIL {error}");
+                log_daemon(&format!("CHARGING_UEVENT_APPLY_FAIL {error}"));
             }
         }
 
@@ -4961,8 +4969,7 @@ fn snapshot_persistence_fields() -> Vec<String> {
         .unwrap_or_default();
 
     let cpu0_drift = drift_status(&state.cpu0, &policy_governor(0));
-    let cpu2_drift = drift_status(&state.cpu2, &policy_governor(2));
-    let cpu5_drift = drift_status(&state.cpu5, &policy_governor(5));
+    let cpu3_drift = drift_status(&state.cpu3, &policy_governor(3));
     let cpu7_drift = drift_status(&state.cpu7, &policy_governor(7));
     let desired_gpu_governor = if !state.gpu_governor.is_empty() {
         state.gpu_governor.as_str()
@@ -4973,10 +4980,8 @@ fn snapshot_persistence_fields() -> Vec<String> {
     let io_drift = drift_status(&state.io, &io_scheduler());
     let cpu_live_min0 = get_cpu_cluster_live_min_freq(0);
     let cpu_live_max0 = get_cpu_cluster_live_max_freq(0);
-    let cpu_live_min2 = get_cpu_cluster_live_min_freq(2);
-    let cpu_live_min5 = get_cpu_cluster_live_min_freq(5);
-    let cpu_live_max2 = get_cpu_cluster_live_max_freq(2);
-    let cpu_live_max5 = get_cpu_cluster_live_max_freq(5);
+    let cpu_live_min3 = get_cpu_cluster_live_min_freq(3);
+    let cpu_live_max3 = get_cpu_cluster_live_max_freq(3);
     let cpu_live_min7 = get_cpu_cluster_live_min_freq(7);
     let cpu_live_max7 = get_cpu_cluster_live_max_freq(7);
     let cpu_freq_drift0 = cpu_frequency_drift_status(
@@ -4985,17 +4990,11 @@ fn snapshot_persistence_fields() -> Vec<String> {
         cpu_live_min0,
         cpu_live_max0,
     );
-    let cpu_freq_drift2 = cpu_frequency_drift_status(
-        state.cpu_min_freq2,
-        state.cpu_max_freq2,
-        cpu_live_min2,
-        cpu_live_max2,
-    );
-    let cpu_freq_drift5 = cpu_frequency_drift_status(
-        state.cpu_min_freq5,
-        state.cpu_max_freq5,
-        cpu_live_min5,
-        cpu_live_max5,
+    let cpu_freq_drift3 = cpu_frequency_drift_status(
+        state.cpu_min_freq3,
+        state.cpu_max_freq3,
+        cpu_live_min3,
+        cpu_live_max3,
     );
     let cpu_freq_drift7 = cpu_frequency_drift_status(
         state.cpu_min_freq7,
@@ -5041,8 +5040,7 @@ fn snapshot_persistence_fields() -> Vec<String> {
             state.gpu_profile_cpu_isolated
         ),
         format!("cpu_drift0={cpu0_drift}"),
-        format!("cpu_drift2={cpu2_drift}"),
-        format!("cpu_drift5={cpu5_drift}"),
+        format!("cpu_drift3={cpu3_drift}"),
         format!("cpu_drift7={cpu7_drift}"),
         format!("gpu_drift={gpu_drift}"),
         format!("io_drift={io_drift}"),
@@ -5113,18 +5111,14 @@ fn snapshot_persistence_fields() -> Vec<String> {
         format!("gpu_power_policy_str={}", gpu_get_power_policy()),
         format!("cpu_min0={}", state.cpu_min_freq0),
         format!("cpu_max0={}", state.cpu_max_freq0),
-        format!("cpu_min2={}", state.cpu_min_freq2),
-        format!("cpu_min5={}", state.cpu_min_freq5),
-        format!("cpu_max2={}", state.cpu_max_freq2),
-        format!("cpu_max5={}", state.cpu_max_freq5),
+        format!("cpu_min3={}", state.cpu_min_freq3),
+        format!("cpu_max3={}", state.cpu_max_freq3),
         format!("cpu_min7={}", state.cpu_min_freq7),
         format!("cpu_max7={}", state.cpu_max_freq7),
         format!("cpu_live_min0={cpu_live_min0}"),
         format!("cpu_live_max0={cpu_live_max0}"),
-        format!("cpu_live_min2={cpu_live_min2}"),
-        format!("cpu_live_min5={cpu_live_min5}"),
-        format!("cpu_live_max2={cpu_live_max2}"),
-        format!("cpu_live_max5={cpu_live_max5}"),
+        format!("cpu_live_min3={cpu_live_min3}"),
+        format!("cpu_live_max3={cpu_live_max3}"),
         format!("cpu_live_min7={cpu_live_min7}"),
         format!("cpu_live_max7={cpu_live_max7}"),
         format!(
@@ -5132,8 +5126,7 @@ fn snapshot_persistence_fields() -> Vec<String> {
             CPU_FREQ_WRITE_ACK.load(Ordering::Acquire)
         ),
         format!("cpu_freq_drift0={cpu_freq_drift0}"),
-        format!("cpu_freq_drift2={cpu_freq_drift2}"),
-        format!("cpu_freq_drift5={cpu_freq_drift5}"),
+        format!("cpu_freq_drift3={cpu_freq_drift3}"),
         format!("cpu_freq_drift7={cpu_freq_drift7}"),
         format!("sconfig_supported={}", i32::from(sconfig::supported())),
         format!("sconfig_live={}", sconfig::read().unwrap_or(-2)),
@@ -5147,8 +5140,7 @@ fn snapshot_persistence_fields() -> Vec<String> {
             CPU_THERMAL_MODE_ACK.load(Ordering::Acquire)
         ),
         format!("cpu_avail0={}", cpu_frequency_table_csv(0)),
-        format!("cpu_avail2={}", cpu_frequency_table_csv(2)),
-        format!("cpu_avail5={}", cpu_frequency_table_csv(5)),
+        format!("cpu_avail3={}", cpu_frequency_table_csv(3)),
         format!("cpu_avail7={}", cpu_frequency_table_csv(7)),
         format!(
             "touch_sustained_rate={}",
@@ -5314,15 +5306,14 @@ fn snapshot() -> String {
         format!("cpu_online={}", sanitize(read_cpu_online_mask_string())),
         format!("cpu0={}", sanitize(cpu_freq(0))),
         format!("cpu1={}", sanitize(cpu_freq(1))),
-        format!("cpu2={}", sanitize(cpu_freq(2))),
+        format!("cpu3={}", sanitize(cpu_freq(2))),
         format!("cpu3={}", sanitize(cpu_freq(3))),
         format!("cpu4={}", sanitize(cpu_freq(4))),
         format!("cpu5={}", sanitize(cpu_freq(5))),
         format!("cpu6={}", sanitize(cpu_freq(6))),
         format!("cpu7={}", sanitize(cpu_freq(7))),
         format!("gov0={}", sanitize(policy_governor(0))),
-        format!("gov2={}", sanitize(policy_governor(2))),
-        format!("gov5={}", sanitize(policy_governor(5))),
+        format!("gov3={}", sanitize(policy_governor(3))),
         format!("gov7={}", sanitize(policy_governor(7))),
         format!("gpu_gov={}", sanitize(gpu_governor())),
         format!("io={}", sanitize(io_scheduler())),
@@ -5759,6 +5750,9 @@ fn handle_enabled_command(line: &str) -> String {
         // install can be probed before enabling any control path.
         return format!("OK {}", hardware_contract::probe());
     }
+    if cmd == "GET logs" {
+        return format!("OK {}", get_daemon_logs());
+    }
     // SettingsProvider owns palette persistence. These commands deliberately
     // bypass hardware state recording and all background reassertion guards.
     if cmd == "GET system.colors" {
@@ -6146,11 +6140,11 @@ mod tests {
         assert!(resolve_peridot_cpu_khz(raw, 3206).is_err());
         assert!(resolve_peridot_cpu_khz("364800 364900", 364).is_err());
         let state = PersistedState {
-            cpu_min_freq5: 480,
-            cpu_max_freq5: 2803,
+            cpu_min_freq3: 480,
+            cpu_max_freq3: 2803,
             ..Default::default()
         };
-        assert_eq!(persisted_cpu_range(&state, 5), Some((480, 2803)));
+        assert_eq!(persisted_cpu_range(&state, 3), Some((480, 2803)));
         assert!(persisted_cpu_ranges_active(&state));
     }
 
@@ -6489,7 +6483,7 @@ io.github.davvv98.peridotessential 10228 0 /data/user/0/io.github.davvv98.perido
         assert!(!persisted_cpu_ranges_active(&stock));
 
         let partial = PersistedState {
-            cpu_min_freq2: 1200,
+            cpu_min_freq3: 1200,
             ..PersistedState::default()
         };
         assert!(!persisted_cpu_ranges_active(&partial));
@@ -6508,12 +6502,12 @@ io.github.davvv98.peridotessential 10228 0 /data/user/0/io.github.davvv98.perido
             perf: 3,
             gpu_profile_cpu_isolated: 0,
             cpu0: "performance".into(),
-            cpu2: "performance".into(),
+            cpu3: "performance".into(),
             cpu7: "performance".into(),
             cpu_min_freq0: 2100,
             cpu_max_freq0: 2100,
-            cpu_min_freq2: 3000,
-            cpu_max_freq2: 3000,
+            cpu_min_freq3: 3000,
+            cpu_max_freq3: 3000,
             cpu_min_freq7: 3250,
             cpu_max_freq7: 3250,
             ..PersistedState::default()
@@ -6529,12 +6523,12 @@ io.github.davvv98.peridotessential 10228 0 /data/user/0/io.github.davvv98.perido
             perf: 3,
             gpu_profile_cpu_isolated: 0,
             cpu0: "schedutil".into(),
-            cpu2: "schedutil".into(),
+            cpu3: "schedutil".into(),
             cpu7: "schedutil".into(),
             cpu_min_freq0: 600,
             cpu_max_freq0: 1800,
-            cpu_min_freq2: 800,
-            cpu_max_freq2: 2200,
+            cpu_min_freq3: 800,
+            cpu_max_freq3: 2200,
             cpu_min_freq7: 1200,
             cpu_max_freq7: 2800,
             ..PersistedState::default()

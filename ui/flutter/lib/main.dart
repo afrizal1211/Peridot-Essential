@@ -25,6 +25,7 @@ import 'backend/bypass_telemetry.dart';
 import 'bypass_threshold_selector.dart';
 import 'backend/system_colors_library.dart';
 import 'system_colors_preview.dart';
+import 'peridot_logger.dart';
 import 'service_confirmation.dart';
 import 'bottom_feedback.dart';
 import 'slider_style.dart';
@@ -75,6 +76,7 @@ enum PeridotScreen {
   systemColors,
   perAppControls,
   subsystemClocks,
+  logs,
 }
 
 extension PeridotScreenName on PeridotScreen {
@@ -828,7 +830,7 @@ class _PeridotShellState extends State<PeridotShell>
       case PeridotScreen.resolution:
         return ResolutionScreen(onBack: _back);
       case PeridotScreen.diagnostics:
-        return DiagnosticsScreen(onBack: _back);
+        return DiagnosticsScreen(onBack: _back, onOpen: onOpen);
       case PeridotScreen.zramSwap:
         return ZramSwapScreen(onBack: _back);
       case PeridotScreen.maliGpu:
@@ -839,6 +841,8 @@ class _PeridotShellState extends State<PeridotShell>
         return PerAppControlsScreen(onBack: _back);
       case PeridotScreen.subsystemClocks:
         return SubsystemClocksScreen(onBack: _back);
+      case PeridotScreen.logs:
+        return LogScreen(onBack: _back);
       default:
         return _rootPager();
     }
@@ -8079,11 +8083,11 @@ class _CpuControlScreenState extends State<CpuControlScreen> {
         }
 
         int efficiencyOnline = 0;
-        for (int c = 0; c <= 1; c++) {
+        for (int c = 0; c <= 2; c++) {
           if (s.cpuOnline(c)) efficiencyOnline++;
         }
         int performanceOnline = 0;
-        for (int c = 2; c <= 6; c++) {
+        for (int c = 3; c <= 6; c++) {
           if (s.cpuOnline(c)) performanceOnline++;
         }
         int primeOnline = s.cpuOnline(7) ? 1 : 0;
@@ -8202,17 +8206,17 @@ class _CpuControlScreenState extends State<CpuControlScreen> {
                         Row(
                           children: <Widget>[
                             _buildHeroStat(
-                              label: 'EFFICIENCY (2C)',
-                              val: '$efficiencyOnline / 2 Online',
+                              label: 'EFFICIENCY (3C)',
+                              val: '$efficiencyOnline / 3 Online',
                               accent: const Color(0xFF4EA8DE),
-                              sub: '2× Cortex-A720',
+                              sub: '3× Cortex-A520',
                             ),
                             const SizedBox(width: 8),
                             _buildHeroStat(
-                              label: 'PERFORMANCE (5C)',
-                              val: '$performanceOnline / 5 Online',
+                              label: 'PERFORMANCE (4C)',
+                              val: '$performanceOnline / 4 Online',
                               accent: const Color(0xFFA066FF),
-                              sub: '5× Cortex-A720',
+                              sub: '4× Cortex-A720',
                             ),
                             const SizedBox(width: 8),
                             _buildHeroStat(
@@ -8262,9 +8266,9 @@ class _CpuControlScreenState extends State<CpuControlScreen> {
                 _CpuFrequencyCard(
                   policy: 0,
                   title: 'Efficiency Cluster',
-                  subtitle: '2× Cortex-A720 · Cores 0–1',
+                  subtitle: '3× Cortex-A520 · Cores 0–2',
                   accent: const Color(0xFF4EA8DE),
-                  currentMhz: clusterCurrentMhz(const <int>[0, 1]),
+                  currentMhz: clusterCurrentMhz(const <int>[0, 1, 2]),
                   targetMinMhz: backend.cpuTargetMinFrequency(0),
                   targetMaxMhz: backend.cpuTargetMaxFrequency(0),
                   liveMinMhz: backend.cpuLiveMinFrequency(0),
@@ -8278,37 +8282,19 @@ class _CpuControlScreenState extends State<CpuControlScreen> {
                 ),
                 const SizedBox(height: 9),
                 _CpuFrequencyCard(
-                  policy: 2,
-                  title: 'Performance Cluster A',
-                  subtitle: '3× Cortex-A720 · Cores 2–4',
+                  policy: 3,
+                  title: 'Performance Cluster',
+                  subtitle: '4× Cortex-A720 · Cores 3–6',
                   accent: const Color(0xFFA066FF),
-                  currentMhz: clusterCurrentMhz(const <int>[2, 3, 4]),
-                  targetMinMhz: backend.cpuTargetMinFrequency(2),
-                  targetMaxMhz: backend.cpuTargetMaxFrequency(2),
-                  liveMinMhz: backend.cpuLiveMinFrequency(2),
-                  liveMaxMhz: backend.cpuLiveMaxFrequency(2),
-                  availableMhz: backend.cpuAvailableFrequencies(2),
-                  governorCode: s.cpuGovernor2,
+                  currentMhz: clusterCurrentMhz(const <int>[3, 4, 5, 6]),
+                  targetMinMhz: backend.cpuTargetMinFrequency(3),
+                  targetMaxMhz: backend.cpuTargetMaxFrequency(3),
+                  liveMinMhz: backend.cpuLiveMinFrequency(3),
+                  liveMaxMhz: backend.cpuLiveMaxFrequency(3),
+                  availableMhz: backend.cpuAvailableFrequencies(3),
+                  governorCode: s.cpuGovernor3,
                   writeAck: frequencyWriteAck,
-                  drift: backend.cpuFrequencyDrift(2),
-                  enabled: canWrite,
-                  onFeedback: _showGlassToast,
-                ),
-                const SizedBox(height: 9),
-                _CpuFrequencyCard(
-                  policy: 5,
-                  title: 'Performance Cluster B',
-                  subtitle: '2× Cortex-A720 · Cores 5–6',
-                  accent: const Color(0xFFA066FF),
-                  currentMhz: clusterCurrentMhz(const <int>[5, 6]),
-                  targetMinMhz: backend.cpuTargetMinFrequency(5),
-                  targetMaxMhz: backend.cpuTargetMaxFrequency(5),
-                  liveMinMhz: backend.cpuLiveMinFrequency(5),
-                  liveMaxMhz: backend.cpuLiveMaxFrequency(5),
-                  availableMhz: backend.cpuAvailableFrequencies(5),
-                  governorCode: s.cpuGovernor5,
-                  writeAck: frequencyWriteAck,
-                  drift: backend.cpuFrequencyDrift(5),
+                  drift: backend.cpuFrequencyDrift(3),
                   enabled: canWrite,
                   onFeedback: _showGlassToast,
                 ),
@@ -8455,7 +8441,7 @@ class _CpuControlScreenState extends State<CpuControlScreen> {
                                   ),
                                 ),
                                 Text(
-                                  '2× Cortex-A720 · Cores 0–1 · $efficiencyOnline/2 Online',
+                                  '3× Cortex-A520 · Cores 0–2 · $efficiencyOnline/3 Online',
                                   style: TextStyle(
                                     fontSize: 11,
                                     color: colors.onSurfaceVariant,
@@ -8469,7 +8455,7 @@ class _CpuControlScreenState extends State<CpuControlScreen> {
                       const SizedBox(height: 12),
                       const Divider(height: 1),
                       const SizedBox(height: 6),
-                      for (int cpu = 0; cpu <= 3; cpu++) ...<Widget>[
+                      for (int cpu = 0; cpu <= 2; cpu++) ...<Widget>[
                         _CpuStatusRow(
                           cpu: cpu,
                           online: s.cpuOnline(cpu),
@@ -8522,7 +8508,7 @@ class _CpuControlScreenState extends State<CpuControlScreen> {
                                   ),
                                 ),
                                 Text(
-                                  '5× Cortex-A720 · Cores 2–6 · $performanceOnline/5 Online',
+                                  '4× Cortex-A720 · Cores 3–6 · $performanceOnline/4 Online',
                                   style: TextStyle(
                                     fontSize: 11,
                                     color: colors.onSurfaceVariant,
@@ -8536,7 +8522,7 @@ class _CpuControlScreenState extends State<CpuControlScreen> {
                       const SizedBox(height: 12),
                       const Divider(height: 1),
                       const SizedBox(height: 6),
-                      for (int cpu = 4; cpu <= 6; cpu++) ...<Widget>[
+                      for (int cpu = 3; cpu <= 6; cpu++) ...<Widget>[
                         _CpuStatusRow(
                           cpu: cpu,
                           online: s.cpuOnline(cpu),
@@ -9915,7 +9901,7 @@ class _AdvancedConfigurationScreenState
             const SizedBox(height: 8),
             _ChoiceCard(
               title: 'Efficiency cluster',
-              subtitle: 'Efficiency cores (Cores 0–1)',
+              subtitle: 'Efficiency cores (Cores 0–2)',
               icon: Icons.memory_rounded,
               accent: const Color(0xFF46CFA1),
               selectedCode: snapshot.cpuGovernor0,
@@ -9925,25 +9911,14 @@ class _AdvancedConfigurationScreenState
             ),
             const SizedBox(height: 9),
             _ChoiceCard(
-              title: 'Performance cluster A',
-              subtitle: 'Performance cores (Cores 2–4)',
+              title: 'Performance cluster',
+              subtitle: 'Performance cores (Cores 3–6)',
               icon: Icons.memory_rounded,
               accent: const Color(0xFFB087FF),
-              selectedCode: snapshot.cpuGovernor2,
+              selectedCode: snapshot.cpuGovernor3,
               options: cpuGovernors,
               enabled: snapshot.controlsAvailable && !snapshot.busy,
-              onSelected: (int code) => backend.setCpuGovernor(2, code),
-            ),
-            const SizedBox(height: 9),
-            _ChoiceCard(
-              title: 'Performance cluster B',
-              subtitle: 'Performance cores (Cores 5–6)',
-              icon: Icons.memory_rounded,
-              accent: const Color(0xFFB087FF),
-              selectedCode: snapshot.cpuGovernor5,
-              options: cpuGovernors,
-              enabled: snapshot.controlsAvailable && !snapshot.busy,
-              onSelected: (int code) => backend.setCpuGovernor(5, code),
+              onSelected: (int code) => backend.setCpuGovernor(3, code),
             ),
             const SizedBox(height: 9),
             _ChoiceCard(
@@ -13182,10 +13157,269 @@ class _MaliGpuScreenState extends State<MaliGpuScreen> {
   }
 }
 
-class DiagnosticsScreen extends StatefulWidget {
-  const DiagnosticsScreen({required this.onBack, super.key});
+class LogScreen extends StatefulWidget {
+  const LogScreen({required this.onBack, super.key});
 
   final VoidCallback onBack;
+
+  @override
+  State<LogScreen> createState() => _LogScreenState();
+}
+
+class _LogScreenState extends State<LogScreen> {
+  List<PeridotLogEntry> _local = const [];
+  List<String> _daemon = const [];
+  bool _loading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  void _load() {
+    setState(() {
+      _loading = true;
+      _local = PeridotLogger().entries;
+    });
+    // Pull daemon + host logged failures from native. The bridge makes a
+    // blocking socket call to the daemon's GET logs, so run it deferred.
+    Future<void>.delayed(const Duration(milliseconds: 250), () {
+      if (!mounted) return;
+      setState(() {
+        _daemon = PeridotBackend.instance.fetchLogs();
+        _loading = false;
+      });
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    const Color accent = Color(0xFF74E6C6);
+    final PeridotBackend backend = PeridotBackend.instance;
+
+    final List<Widget> rows = <Widget>[
+      for (final PeridotLogEntry e in _local.reversed)
+        _LogRow(
+          time: '${e.time.hour.toString().padLeft(2, '0')}:'
+              '${e.time.minute.toString().padLeft(2, '0')}:'
+              '${e.time.second.toString().padLeft(2, '0')}',
+          level: e.level.symbol,
+          color: e.level.color,
+          source: e.source,
+          message: e.message,
+        ),
+      if (_local.isNotEmpty && _daemon.isNotEmpty)
+        const Divider(height: 16),
+      for (final String line in _daemon.reversed)
+        _DaemonLogRow(line: line),
+    ];
+
+    return PeridotScrollPage(
+      children: <Widget>[
+        DetailHeader(title: 'Application & System Logs', onBack: widget.onBack),
+        const SizedBox(height: 4),
+        Text(
+          'Recent feature and command failures from the app, daemon, and bridge',
+          style: TextStyle(
+            fontSize: 13.5,
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(height: 10),
+        HeroCard(
+          icon: Icons.receipt_long_rounded,
+          accent: accent,
+          title: '${_local.length} app events · ${_daemon.length} daemon lines',
+          subtitle: _loading
+              ? 'Refreshing…'
+              : _daemon.isEmpty
+              ? 'Open the Diagnostics screen or use a feature to populate daemon logs'
+              : 'Newest at bottom',
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: <Widget>[
+            Expanded(
+              child: _LogAction(
+                icon: Icons.refresh_rounded,
+                label: 'Refresh',
+                onTap: _load,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _LogAction(
+                icon: Icons.delete_sweep_rounded,
+                label: 'Clear app logs',
+                onTap: () {
+                  PeridotLogger().clear();
+                  backend.refresh();
+                  _load();
+                },
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        if (rows.isEmpty)
+          Padding(
+            padding: const EdgeInsets.all(24),
+            child: Text(
+              'No entries yet. Use a feature (charging, touch, CPU, display) '
+              'and revisit to see command results and failures here.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 13,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+          )
+        else
+          SurfaceCard(
+            child: Column(children: rows),
+          ),
+      ],
+    );
+  }
+}
+
+class _LogRow extends StatelessWidget {
+  const _LogRow({
+    required this.time,
+    required this.level,
+    required this.color,
+    required this.source,
+    required this.message,
+  });
+
+  final String time;
+  final String level;
+  final int color;
+  final String source;
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 5, horizontal: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          SizedBox(
+            width: 52,
+            child: Text(
+              time,
+              style: TextStyle(
+                fontSize: 10,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+          const SizedBox(width: 6),
+          Text(
+            level,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+              color: Color(color),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              '$source · $message',
+              style: TextStyle(
+                fontSize: 12,
+                color: Theme.of(context).colorScheme.onSurface,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DaemonLogRow extends StatelessWidget {
+  const _DaemonLogRow({required this.line});
+
+  final String line;
+
+  @override
+  Widget build(BuildContext context) {
+    // Daemon ring entries look like "<unix_ts> <message>".
+    final int sp = line.indexOf(' ');
+    final String body = sp < 0 ? line : line.substring(sp + 1);
+    final bool isError =
+        body.contains('FAIL') || body.contains('ERR') || body.contains('REJECT');
+    return _LogRow(
+      time: sp < 0 ? '' : _fmtTs(line.substring(0, sp)),
+      level: isError ? '✗' : 'i',
+      color: isError ? 0xFFEF5350 : 0xFF64B5F6,
+      source: 'daemon',
+      message: body,
+    );
+  }
+
+  static String _fmtTs(String secs) {
+    final int? s = int.tryParse(secs);
+    if (s == null) return '';
+    final DateTime t = DateTime.fromMillisecondsSinceEpoch(s * 1000);
+    return '${t.hour.toString().padLeft(2, '0')}:'
+        '${t.minute.toString().padLeft(2, '0')}:'
+        '${t.second.toString().padLeft(2, '0')}';
+  }
+}
+
+class _LogAction extends StatelessWidget {
+  const _LogAction({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme cs = Theme.of(context).colorScheme;
+    return Material(
+      color: cs.surfaceContainerHighest.withValues(alpha: 0.5),
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: <Widget>[
+              Icon(icon, size: 18, color: cs.onSurfaceVariant),
+              const SizedBox(width: 8),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: cs.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class DiagnosticsScreen extends StatefulWidget {
+  const DiagnosticsScreen({required this.onBack, this.onOpen, super.key});
+
+  final VoidCallback onBack;
+  final void Function(PeridotScreen)? onOpen;
 
   @override
   State<DiagnosticsScreen> createState() => _DiagnosticsScreenState();
@@ -13327,9 +13561,68 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
                 ],
               ),
             ),
+            const SizedBox(height: 10),
+            _LogNavButton(
+              onOpen: widget.onOpen != null ? () => widget.onOpen!(PeridotScreen.logs) : null,
+            ),
           ],
         );
       },
+    );
+  }
+}
+
+class _LogNavButton extends StatelessWidget {
+  const _LogNavButton({this.onOpen});
+  final VoidCallback? onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    if (onOpen == null) return const SizedBox.shrink();
+    return SurfaceCard(
+      child: InkWell(
+        onTap: onOpen,
+        borderRadius: BorderRadius.circular(16),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Row(
+            children: <Widget>[
+              Icon(
+                Icons.receipt_long_rounded,
+                size: 22,
+                color: const Color(0xFF74E6C6),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      'Application & System Logs',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: Theme.of(context).colorScheme.onSurface,
+                      ),
+                    ),
+                    Text(
+                      'View recent command results and daemon failures',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(
+                Icons.chevron_right_rounded,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
