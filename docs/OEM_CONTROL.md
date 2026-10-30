@@ -44,10 +44,15 @@ RPC: `SET cpu.sconfig 6`; restoration: `SET cpu.sconfig -1`.
 
 The display backend uses Xiaomi DisplayFeature AIDL. Individual effects require
 validation on the port; an accepted call does not guarantee a visible change.
-Touch profiles are OEM (mode 0 = 0; approximately 125 Hz observed) and 250 Hz
-(mode 0 = 1; approximately 250 Hz observed). Both use TouchFeature AIDL
-transaction 9 and verify game-mode readback through transaction 1. These labels
-are device observations, not daemon measurements of physical sampling rate.
+Touch profiles are defined as OEM (mode 0 = 0; about 125 Hz label) and 250 Hz
+(mode 0 = 1; about 250 Hz label). Both use TouchFeature AIDL transaction 9 and
+verify game-mode readback through transaction 1. These labels are inherited
+device observations, not daemon measurements of physical sampling rate.
+
+On the tested peridot vendor stack the TouchFeature AIDL service is not
+exposed. The app reports the engine as unavailable and writes no touch mode, so
+the profile labels are informational there. The rates only become actionable on
+a stack that exposes `vendor.xiaomi.hw.touchfeature.ITouchFeature`.
 
 The original game-mode value is journaled before changing it and restored when
 control is disabled or released. OEM explicitly switches game mode off. Profile

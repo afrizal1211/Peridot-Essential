@@ -43,7 +43,7 @@ and contributors. See [CREDITS.md](CREDITS.md), [NOTICE](NOTICE) and [LICENSE](L
 | Diagnostic client | `peridot_ctl` |
 | Host library | `libperidot_essential_host.so` |
 | Protocol | `peridot.4` |
-| Internal version | `1.18.6` / `11806` |
+| Internal version | `1.18.7` / `11807` |
 | Community maintainer | afrizal1221 |
 | Community chat | [@PocoF6Indo](https://t.me/PocoF6Indo) |
 
@@ -64,17 +64,26 @@ and contributors. See [CREDITS.md](CREDITS.md), [NOTICE](NOTICE) and [LICENSE](L
 
 ## Status and known limitations
 
+On-device checks on POCO F6 passed for thermal control, CPU frequency and
+efficiency including prime, manual core control, GPU performance mode, governor
+efficiency and prime, per-app controls, display and resolution. The items below
+are the remaining gaps.
+
 Device testing confirmed 1150 MHz GPU operation with Sconfig scenario 6.
 This does not guarantee every frequency in every scenario. Driver and vendor
 services can change effective limits; the backend does not continuously rewrite
 the requested frequencies to fight those changes.
 
-Touch offers OEM (approximately 125 Hz observed) and Xiaomi game mode
-(approximately 250 Hz observed). The 480 Hz option is disabled pending adaptation;
-the 1000 Hz resampling option has been removed. Charging power profiles **still
-require adaptation**. OEM charging and available telemetry remain enabled. Bypass is
-available only when the explicit nodes required by the backend are detected;
-they were absent from the supplied device snapshot.
+Touch control is **unavailable on the tested peridot vendor stack**: the vendor
+TouchFeature AIDL service is not exposed, so OEM (about 125 Hz) and game mode
+(about 250 Hz) remain inherited labels rather than working profiles here. The
+app detects this and writes no touch mode. The 480 Hz option stays disabled and
+the 1000 Hz resampling option was removed. Charging power profiles **still
+require adaptation** and are kernel dependent. OEM charging and available
+telemetry remain enabled. Bypass is available only when the explicit nodes
+required by the backend are detected; they were absent from the supplied device
+snapshot. Memory DVFS and UFS scheduler controls have **not been device-validated**
+yet; their nodes are probed at runtime and reported as unavailable when absent.
 
 Xiaomi DisplayFeature AIDL is retained, but an accepted transaction does not
 prove that every display effect works on the port. Native ROM integration and

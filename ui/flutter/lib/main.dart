@@ -7054,18 +7054,21 @@ class _TouchBoostScreenState extends State<TouchBoostScreen> {
         };
         final bool applying =
             _pendingProfile != null && savedProfile != _pendingProfile;
-        final bool oemManaged = activeProfile == 0 && !applying;
+        final bool touchReady = snapshot.touchHal == 1;
+        final bool oemManaged =
+            touchReady && activeProfile == 0 && !applying;
+        final bool confirmed = touchReady && !applying && touchAck == 1;
         final bool controlsEnabled =
-            snapshot.controlsAvailable &&
-            snapshot.touchHal == 1 &&
-            !snapshot.busy;
+            snapshot.controlsAvailable && touchReady && !snapshot.busy;
 
         return PeridotScrollPage(
           children: <Widget>[
             DetailHeader(title: 'Touch Response', onBack: widget.onBack),
             const SizedBox(height: 4),
             Text(
-              'Choose OEM (125 Hz observed) or game mode (250 Hz observed). The 480 Hz option is pending adaptation.',
+              touchReady
+                  ? 'Choose OEM (125 Hz observed) or game mode (250 Hz observed). The 480 Hz option is pending adaptation.'
+                  : 'The TouchFeature AIDL service is not exposed on this vendor stack, so profile changes are unavailable. The rates shown are inherited labels, not measurements.',
               style: TextStyle(
                 fontSize: 13.5,
                 color: Theme.of(context).colorScheme.onSurfaceVariant,
@@ -7094,14 +7097,18 @@ class _TouchBoostScreenState extends State<TouchBoostScreen> {
                   IconTile(
                     icon: oemManaged
                         ? Icons.auto_awesome_rounded
-                        : !applying && touchAck == 1
+                        : confirmed
                         ? Icons.verified_rounded
-                        : Icons.sync_rounded,
+                        : touchReady
+                        ? Icons.sync_rounded
+                        : Icons.info_outline_rounded,
                     accent: oemManaged
                         ? Theme.of(context).colorScheme.primary
-                        : !applying && touchAck == 1
+                        : confirmed
                         ? const Color(0xFF41C98A)
-                        : const Color(0xFFFFB84D),
+                        : touchReady
+                        ? const Color(0xFFFFB84D)
+                        : Theme.of(context).colorScheme.onSurfaceVariant,
                     size: 44,
                   ),
                   const SizedBox(width: 11),
@@ -7112,9 +7119,11 @@ class _TouchBoostScreenState extends State<TouchBoostScreen> {
                         Text(
                           oemManaged
                               ? 'OEM-managed touch'
-                              : !applying && touchAck == 1
+                              : confirmed
                               ? 'Profile persisted'
-                              : 'Applying touch pipeline',
+                              : touchReady
+                              ? 'Applying touch pipeline'
+                              : 'Touch control unavailable',
                           style: const TextStyle(
                             fontSize: 14.5,
                             fontWeight: FontWeight.w700,
@@ -7124,9 +7133,11 @@ class _TouchBoostScreenState extends State<TouchBoostScreen> {
                         Text(
                           oemManaged
                               ? 'Game mode is off. Approximately 125 Hz was observed on this device.'
-                              : !applying && touchAck == 1
+                              : confirmed
                               ? 'Game-mode readback confirmed; actual sampling rate is not measured here'
-                              : 'Waiting for the panel HAL to confirm every required mode',
+                              : touchReady
+                              ? 'Waiting for the panel HAL to confirm every required mode'
+                              : 'The vendor stack does not expose the TouchFeature service; no touch mode is written.',
                           style: TextStyle(
                             fontSize: 11.5,
                             height: 1.25,
@@ -7142,10 +7153,12 @@ class _TouchBoostScreenState extends State<TouchBoostScreen> {
               ),
             ),
             const SizedBox(height: 12),
-            const SurfaceCard(
+            SurfaceCard(
               child: _InfoBlock(
                 title: 'Touch rate status',
-                text: '125 and 250 Hz are tester observations on this device, not a live rate measurement. The active control changes Xiaomi game mode. 480 Hz remains unavailable until its control path is validated.',
+                text: touchReady
+                    ? '125 and 250 Hz are inherited tester observations, not a live rate measurement. The active control changes Xiaomi game mode. 480 Hz remains unavailable until its control path is validated.'
+                    : 'This peridot vendor stack does not expose TouchFeature AIDL, so the OEM and game-mode rates cannot be applied or measured here. No touch mode is changed while the engine is unavailable.',
               ),
             ),
           ],

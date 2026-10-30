@@ -44,6 +44,13 @@ void main() {
     expect(find.text('Default · Game mode off'), findsOneWidget);
     expect(find.text('250 Hz'), findsOneWidget);
     expect(find.text('480 Hz'), findsOneWidget);
+    // This test attaches no TouchFeature HAL, so the screen must say the
+    // engine is unavailable instead of advertising a working rate.
+    expect(find.text('Touch control unavailable'), findsOneWidget);
+    expect(
+      find.textContaining('TouchFeature AIDL service is not exposed'),
+      findsOneWidget,
+    );
     final scroll = tester.state<ScrollableState>(find.byType(Scrollable).first);
     scroll.position.jumpTo(scroll.position.maxScrollExtent);
     await tester.pumpAndSettle();
