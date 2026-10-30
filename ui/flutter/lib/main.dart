@@ -26,7 +26,6 @@ import 'backend/bypass_telemetry.dart';
 import 'bypass_threshold_selector.dart';
 import 'backend/system_colors_library.dart';
 import 'system_colors_preview.dart';
-import 'peridot_logger.dart';
 import 'service_confirmation.dart';
 import 'bottom_feedback.dart';
 import 'slider_style.dart';
