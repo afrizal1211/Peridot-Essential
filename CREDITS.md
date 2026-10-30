@@ -24,6 +24,20 @@ CPU policies 0/2/5/7, separate requested and effective ranges, Xiaomi Sconfig
 selection, Peridot package and executable names, icons and device documentation.
 Development included assistance from AI tools.
 
+## Community distribution
+
+Maintainer: **afrizal1221**.
+
+Repository: https://github.com/afrizal1211/Peridot-Essential
+
+Telegram: https://t.me/PocoF6Indo
+
+This distribution carries the Peridot adaptation above unchanged in behaviour.
+Its changes are limited to signed release builds, release automation, artifact
+naming and the community identity (repository, chat and maintainer credit) shown
+in the application and module metadata. Authorship of the original project and
+of the Peridot adaptation remains with the authors credited above.
+
 Other components and dependencies retain their respective authorship.
 Source notices and LICENSE are preserved. The Peridot branding does not present
 the entire project as a new creation from scratch.

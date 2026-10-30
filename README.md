@@ -6,6 +6,17 @@ a Rust host and a separate privileged daemon provided by the root module.
 
 <img src="branding/peridot-icon-master.png" alt="Peridot Essential logo" width="128" />
 
+## Community build
+
+This build is distributed by **afrizal1221** for the
+[POCO F6 Indonesia](https://t.me/PocoF6Indo) community.
+
+- Repository: [Peridot-Essential](https://github.com/afrizal1211/Peridot-Essential).
+- Telegram: [@PocoF6Indo](https://t.me/PocoF6Indo).
+- Community changes: signed release builds, release automation, artifact naming
+  and the community identity shown in the app. Hardware behaviour is unchanged
+  from the adapted source credited below.
+
 ## Credits and origin
 
 **Peridot Essential is an adaptation of Rodin Essential, created by
@@ -33,6 +44,8 @@ and contributors. See [CREDITS.md](CREDITS.md), [NOTICE](NOTICE) and [LICENSE](L
 | Host library | `libperidot_essential_host.so` |
 | Protocol | `peridot.4` |
 | Internal version | `1.18.5` / `11805` |
+| Community maintainer | afrizal1221 |
+| Community chat | [@PocoF6Indo](https://t.me/PocoF6Indo) |
 
 ## Adaptation features
 

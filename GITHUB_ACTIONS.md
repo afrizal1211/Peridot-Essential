@@ -8,7 +8,7 @@ does not unpack it into a runnable workflow.
 
 1. Push the source to your branch.
 2. Open Actions → peridot-release → Run workflow and select that branch.
-3. Download the Peridot-Essential-Poco-F7 artifact after completion.
+3. Download the Peridot-Essential artifact after completion.
 
 It contains `Peridot-Essential.apk`, `Peridot-Essential-KernelSU-Next-Magisk.zip`
 and `SHA256SUMS.txt`. Manual runs without signing secrets use a temporary key;

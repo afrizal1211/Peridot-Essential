@@ -526,11 +526,23 @@ pub extern "C" fn peridot_host_haptic_ready() -> i32 {
     }
 }
 
+/// Community, community chat and upstream-source links shown in the About page.
+/// Kept in one place so the distribution identity never drifts between the UI
+/// labels and the URLs the host actually opens.
+fn peridot_support_url(code: i32) -> Option<&'static str> {
+    match code {
+        0 => Some("https://github.com/afrizal1211/Peridot-Essential"),
+        1 => Some("https://t.me/PocoF6Indo"),
+        // Upstream credit: Rodin Essential by NEESCHAL-3.
+        2 => Some("https://github.com/NEESCHAL-3/Rodin-Essential"),
+        _ => None,
+    }
+}
+
 pub fn peridot_host_open_url_jni(code: i32) -> bool {
-    let url = match code {
-        0 => "https://github.com/NEESCHAL-3",
-        1 => "https://t.me/PocoX7ProNepalChat",
-        _ => return false,
+    let url = match peridot_support_url(code) {
+        Some(url) => url,
+        None => return false,
     };
 
     let activity_ptr =

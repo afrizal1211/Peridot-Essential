@@ -5180,7 +5180,7 @@ class SupportScreen extends StatelessWidget {
         _CommunityCard(
           title: 'GitHub Repository',
           subtitle: 'Star, fork, and inspect the open-source code',
-          badge: 'NEESCHAL-3',
+          badge: 'afrizal1221',
           iconWidget: GithubIcon(color: colors.primary, size: 22),
           accent: colors.primary,
           onTap: () => _openLink(0),
@@ -5191,7 +5191,7 @@ class SupportScreen extends StatelessWidget {
         _CommunityCard(
           title: 'Telegram Community',
           subtitle: 'Join device discussions, chat & get instant support',
-          badge: '@PocoX7ProNepalChat',
+          badge: '@PocoF6Indo',
           iconWidget: const Icon(
             Icons.send_rounded,
             size: 20,
@@ -5199,6 +5199,27 @@ class SupportScreen extends StatelessWidget {
           ),
           accent: const Color(0xFF26A5E4),
           onTap: () => _openLink(1),
+        ),
+        const SizedBox(height: 10),
+
+        // Upstream credit: this build is a community distribution of an
+        // existing project, so the original authors stay one tap away.
+        InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: () => _openLink(2),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+            child: Text(
+              'Built on Rodin Essential by NEESCHAL-3 · Peridot adaptation by davvv98',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 10.5,
+                height: 1.45,
+                fontWeight: FontWeight.w600,
+                color: colors.onSurfaceVariant,
+              ),
+            ),
+          ),
         ),
 
         const SizedBox(height: 16),
@@ -5225,7 +5246,7 @@ class SupportScreen extends StatelessWidget {
                     ),
                   ),
                   Text(
-                    'NEESCHAL 🇳🇵',
+                    'afrizal1221',
                     style: TextStyle(
                       fontSize: 11.5,
                       fontWeight: FontWeight.w800,

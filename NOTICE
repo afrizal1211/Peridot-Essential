@@ -10,5 +10,11 @@ with AI-assisted development: POCO F7 CPU/KGSL backend changes,
 requested/effective limit handling, Xiaomi Sconfig controls, Peridot identity,
 icons, build adjustments and device-specific documentation.
 
+Community distribution maintained by afrizal1221:
+https://github.com/afrizal1211/Peridot-Essential
+Community chat: https://t.me/PocoF6Indo
+These changes are limited to signed release builds, release automation,
+artifact naming and community identity in the application and module metadata.
+
 Original project and dependency authors retain credit for their work.
 See LICENSE and the notices in the source code.
