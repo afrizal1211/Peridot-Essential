@@ -1,8 +1,7 @@
 // Peridot logger — in-memory ring buffer, accessible in-app.
 //
 // Skipped: disk persistence, log export (add when user requests).
-
-import 'dart:async';
+// Dart runs single-isolate; no cross-thread locking needed for simple list ops.
 
 import 'package:flutter/foundation.dart';
 
@@ -30,11 +29,6 @@ class PeridotLogEntry {
     required this.source,
     required this.message,
   });
-
-  String get _time =>
-      '${time.hour.toString().padLeft(2, '0')}:'
-      '${time.minute.toString().padLeft(2, '0')}:'
-      '${time.second.toString().padLeft(2, '0')}';
 }
 
 /// Max entries before oldest are dropped.
@@ -47,25 +41,19 @@ class PeridotLogger {
   factory PeridotLogger() => _instance;
 
   final List<PeridotLogEntry> _entries = [];
-  final _lock = Object();
 
   /// Snapshot of entries at call time.
-  List<PeridotLogEntry> get entries {
-    // ignore: unnecessary_statements
-    synchronized(_lock);
-    return List<PeridotLogEntry>.unmodifiable(_entries);
-  }
+  List<PeridotLogEntry> get entries =>
+      List<PeridotLogEntry>.unmodifiable(_entries);
 
   void _add(PeridotLogLevel level, String source, String message) {
-    synchronized(_lock) {
-      if (_entries.length >= kPeridotLogMax) _entries.removeAt(0);
-      _entries.add(PeridotLogEntry(
-        time: DateTime.now(),
-        level: level,
-        source: source,
-        message: message,
-      ));
-    }
+    if (_entries.length >= kPeridotLogMax) _entries.removeAt(0);
+    _entries.add(PeridotLogEntry(
+      time: DateTime.now(),
+      level: level,
+      source: source,
+      message: message,
+    ));
     debugPrint('[Peridot/$source] ${level.name.toUpperCase()}: $message');
   }
 
@@ -94,7 +82,5 @@ class PeridotLogger {
     return result;
   }
 
-  void clear() {
-    synchronized(_lock) => _entries.clear();
-  }
+  void clear() => _entries.clear();
 }
