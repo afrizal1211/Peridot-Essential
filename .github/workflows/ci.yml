@@ -7,8 +7,7 @@ on:
     branches: [main]
 
 env:
-  FLUTTER_VERSION: "3.24.5"
-  NDK_VERSION: "27b"
+  FLUTTER_VERSION: "3.47.9"
 
 jobs:
   check:
@@ -38,11 +37,6 @@ jobs:
         with:
           toolchain: stable
 
-      - name: Android NDK
-        uses: nick-fields/setup-android-ndk@v1
-        with:
-          ndk-version: ${{ env.NDK_VERSION }}
-
       - name: Rust host test (service lifecycle)
         run: |
           cd runtime/daemon-rust
@@ -50,7 +44,17 @@ jobs:
 
       - name: Rust Android cross-compile check
         run: |
-          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android31-clang"
+          NDK="$ANDROID_NDK_LATEST_HOME"
+          if [ ! -d "$NDK" ]; then
+            NDK=$(ls -d "$ANDROID_HOME/ndk/"* 2>/dev/null | sort -V | tail -1)
+          fi
+          echo "NDK=$NDK"
+          [ -x "$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android31-clang" ] || {
+            echo "NDK toolchain missing; installing"; yes | sdkmanager --licenses >/dev/null || true
+            sdkmanager "ndk;27b" >/dev/null
+            NDK=$(ls -d "$ANDROID_HOME/ndk/"* 2>/dev/null | sort -V | tail -1)
+          }
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android31-clang"
           export RUSTFLAGS="-L native=$GITHUB_WORKSPACE/runtime/flutter-engine/prebuilt/android-arm64 -C link-arg=-Wl,-z,max-page-size=16384"
           cargo build --release --target aarch64-linux-android --manifest-path=runtime/daemon-rust/Cargo.toml
           cargo build --release --target aarch64-linux-android --manifest-path=runtime/host-rust/Cargo.toml
@@ -69,10 +73,15 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
 
-      - name: Android NDK
-        uses: nick-fields/setup-android-ndk@v1
-        with:
-          ndk-version: ${{ env.NDK_VERSION }}
+      - name: Install Android NDK
+        run: |
+          NDK=$(ls -d "$ANDROID_HOME/ndk/"* 2>/dev/null | sort -V | tail -1)
+          if [ -z "$NDK" ] || [ ! -x "$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android31-clang" ]; then
+            yes | sdkmanager --licenses >/dev/null || true
+            sdkmanager "ndk;27b" >/dev/null
+          fi
+          NDK=$(ls -d "$ANDROID_HOME/ndk/"* 2>/dev/null | sort -V | tail -1)
+          echo "NDK_HOME=$NDK" >> "$GITHUB_ENV"
 
       - name: Download Flutter engine prebuilts
         run: |
