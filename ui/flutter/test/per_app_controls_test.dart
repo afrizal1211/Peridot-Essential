@@ -148,11 +148,11 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(DropdownButtonFormField<String>), findsNothing);
     await tester.scrollUntilVisible(
-      find.text('OEM adaptive').first,
+      find.text('OEM · 125 Hz observed').first,
       200,
       scrollable: find.byType(Scrollable).first,
     );
-    await tester.tap(find.text('OEM adaptive').first);
+    await tester.tap(find.text('OEM · 125 Hz observed').first);
     await tester.pumpAndSettle();
     expect(find.text('Save app profile'), findsNothing);
     final String command = commands.firstWhere(

@@ -41,10 +41,9 @@ void main() {
     );
     await tester.pump();
     expect(find.text('OEM Control'), findsNWidgets(2));
-    expect(find.text('Default · No fixed-rate override'), findsOneWidget);
+    expect(find.text('Default · Game mode off'), findsOneWidget);
     expect(find.text('250 Hz'), findsOneWidget);
-    expect(find.text('500 Hz'), findsOneWidget);
-    expect(find.text('1000 Hz'), findsOneWidget);
+    expect(find.text('480 Hz'), findsOneWidget);
     final scroll = tester.state<ScrollableState>(find.byType(Scrollable).first);
     scroll.position.jumpTo(scroll.position.maxScrollExtent);
     await tester.pumpAndSettle();
