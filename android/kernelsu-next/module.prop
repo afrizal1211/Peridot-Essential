@@ -1,6 +1,6 @@
 id=nees_rodin_essential_backend
 name=Peridot Essential (POCO F6)
-version=v1.18.6
-versionCode=11806
+version=v1.18.7
+versionCode=11807
 author=NEESCHAL-3 (original), davvv98 (Peridot adaptation), afrizal1221 (community build)
 description=KernelSU Next and Magisk package for POCO F6 Peridot. Qualcomm KGSL backend; Xiaomi DisplayFeature. Keeps the Android app non-root and runs hardware controls through an authenticated root daemon.

@@ -245,7 +245,7 @@ jobs:
           if ! gh release view "$TAG" >/dev/null 2>&1; then
             gh release create "$TAG" --verify-tag --title "Peridot Essential $TAG" \
               --notes "$(printf '%s\n' \
-                'POCO F6 (peridot), Snapdragon 8s Gen 3. CPU/KGSL adaptation with Xiaomi DisplayFeature; touch-rate and charging tiers remain pending device validation.' \
+                'POCO F6 (peridot), Snapdragon 8s Gen 3. CPU/KGSL adaptation with Xiaomi DisplayFeature. Touch control is unavailable on the tested vendor stack (no TouchFeature AIDL service); charging stays kernel dependent and memory DVFS/UFS still need device validation.' \
                 '' \
                 'Community build by afrizal1221 · https://github.com/afrizal1211/Peridot-Essential · Telegram @PocoF6Indo' \
                 'Based on Rodin Essential by NEESCHAL-3; Peridot adaptation by davvv98. See CREDITS.md.')"

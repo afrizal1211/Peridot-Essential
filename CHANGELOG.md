@@ -1,5 +1,19 @@
 # Peridot Essential changelog
 
+## 1.18.7
+
+Documentation and in-app copy accuracy for the community build. Protocol stays
+`peridot.4`; no control path, frequency table or OPP limit changed.
+
+- Touch Response no longer claims a live 125/250 Hz result on this device. The
+  tested peridot vendor stack does not expose the TouchFeature AIDL service, so
+  the screen now says the engine is unavailable, disables the profile grid and
+  writes no touch mode. The rates remain inherited labels.
+- README and `docs/OEM_CONTROL.md` match the device run: touch control
+  unavailable, charging profiles kernel dependent, memory DVFS and UFS still
+  unvalidated. The UFS/DVFS screen keeps probing nodes and reports them as
+  unavailable when absent.
+
 ## 1.18.6
 
 Community build for POCO F6 (`peridot`) by afrizal1221 / @PocoF6Indo.
