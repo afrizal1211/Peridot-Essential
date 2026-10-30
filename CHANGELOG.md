@@ -1,5 +1,21 @@
 # Peridot Essential changelog
 
+## 1.18.6
+
+Community build for POCO F6 (`peridot`) by afrizal1221 / @PocoF6Indo.
+Protocol stays `peridot.4`; hardware behaviour is unchanged.
+
+- Community identity: the About page GitHub card and footer credit name
+  afrizal1221, the Telegram card and the opened link point to @PocoF6Indo,
+  and a tappable credit line keeps Rodin Essential (NEESCHAL-3) and the
+  Peridot adaptation (davvv98) reachable from inside the app.
+- Correct the documented hardware: POCO F6, Snapdragon 8s Gen 3 (`SM8635`),
+  Adreno 735. Earlier text claimed POCO F7 / `SM8735` / Adreno 825, and one
+  About hero line named MT6899, which is a MediaTek part number.
+- Community distribution and release automation are credited in README,
+  CREDITS, NOTICE and the module author field without changing the original
+  authorship text.
+
 ## 1.18.5
 
 POCO F6 adaptation revision; current protocol: `peridot.4`. This log describes

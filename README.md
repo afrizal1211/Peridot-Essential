@@ -43,7 +43,7 @@ and contributors. See [CREDITS.md](CREDITS.md), [NOTICE](NOTICE) and [LICENSE](L
 | Diagnostic client | `peridot_ctl` |
 | Host library | `libperidot_essential_host.so` |
 | Protocol | `peridot.4` |
-| Internal version | `1.18.5` / `11805` |
+| Internal version | `1.18.6` / `11806` |
 | Community maintainer | afrizal1221 |
 | Community chat | [@PocoF6Indo](https://t.me/PocoF6Indo) |
 
