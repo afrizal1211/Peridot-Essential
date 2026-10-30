@@ -231,7 +231,7 @@ jobs:
       - name: Upload APK and module
         uses: actions/upload-artifact@v4
         with:
-          name: Peridot-Essential-Poco-F7
+          name: Peridot-Essential
           path: out/peridot-artifacts/
           if-no-files-found: error
 
