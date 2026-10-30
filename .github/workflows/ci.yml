@@ -43,18 +43,26 @@ jobs:
           cd runtime/daemon-rust
           cargo test --lib -- --test-threads=1
 
+      - name: Download Flutter engine prebuilts
+        run: |
+          ENGINE_DIR="$GITHUB_WORKSPACE/runtime/flutter-engine/prebuilt/android-arm64"
+          mkdir -p "$ENGINE_DIR"
+          if [ ! -f "$ENGINE_DIR/libflutter_engine.so" ]; then
+            ENGINE_API="https://api.github.com/repos/flutter/engine/releases/tags/$FLUTTER_VERSION"
+            ASSET_URL=$(curl -sL "$ENGINE_API" \
+              | python3 -c "import sys,json; data=json.load(sys.stdin); [print(a['browser_download_url']) for a in data['assets'] if 'linux-x64.zip' in a['name']]" \
+              | head -1)
+            curl -sL "$ASSET_URL" -o /tmp/flutter-engine.zip
+            unzip -j /tmp/flutter-engine.zip \
+              "flutter/bin/cache/artifacts/engine/android-arm64-release/libflutter_engine.so" \
+              "flutter/bin/cache/artifacts/engine/android-arm64-release/icudtl.dat" \
+              -d "$ENGINE_DIR"
+          fi
+          ls -la "$ENGINE_DIR/"
+
       - name: Rust Android cross-compile check
         run: |
-          NDK="$ANDROID_NDK_LATEST_HOME"
-          if [ ! -d "$NDK" ]; then
-            NDK=$(ls -d "$ANDROID_HOME/ndk/"* 2>/dev/null | sort -V | tail -1)
-          fi
-          echo "NDK=$NDK"
-          [ -x "$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android31-clang" ] || {
-            echo "NDK toolchain missing; installing"; yes | sdkmanager --licenses >/dev/null || true
-            sdkmanager "ndk;27b" >/dev/null
-            NDK=$(ls -d "$ANDROID_HOME/ndk/"* 2>/dev/null | sort -V | tail -1)
-          }
+          NDK=$(ls -d "$ANDROID_HOME/ndk/"* 2>/dev/null | sort -V | tail -1)
           export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android31-clang"
           export RUSTFLAGS="-L native=$GITHUB_WORKSPACE/runtime/flutter-engine/prebuilt/android-arm64 -C link-arg=-Wl,-z,max-page-size=16384"
           cargo build --release --target aarch64-linux-android --manifest-path=runtime/daemon-rust/Cargo.toml
