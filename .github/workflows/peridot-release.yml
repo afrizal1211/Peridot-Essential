@@ -46,7 +46,7 @@ jobs:
           test -f runtime/daemon-rust/src/peridot.rs
           test -f ui/flutter/pubspec.yaml
           test -f tools/build-kernelsu-next-module.sh
-          grep -Fq 'peridot.4' runtime/daemon-rust/src/lib.rs
+          grep -Fq 'peridot.5' runtime/daemon-rust/src/lib.rs
 
       - name: Free disk space for engine sources
         run: |

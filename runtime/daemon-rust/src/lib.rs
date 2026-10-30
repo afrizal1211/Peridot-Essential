@@ -18,6 +18,7 @@ use std::time::{Duration, Instant};
 mod app_controls;
 mod app_runtime;
 mod bypass_policy;
+mod hardware_contract;
 mod service_control;
 mod subsystem_clocks;
 mod system_colors;
@@ -25,7 +26,7 @@ mod touch_resampler;
 
 pub const SOCKET_NAME: &str = "peridot_essentiald_v15";
 pub const REVERSE_SOCKET_NAME: &str = "peridot_essential_app_v15";
-pub const PROTOCOL_VERSION: &str = "peridot.4";
+pub const PROTOCOL_VERSION: &str = "peridot.5";
 const LOOPBACK_PORT: u16 = 732;
 
 const AF_UNIX: i32 = 1;
@@ -681,6 +682,13 @@ fn charging_path() -> PathBuf {
 }
 
 fn charging_fcc_path() -> Option<PathBuf> {
+    // /sys/class/qcom-battery/fastcharge_enable is the documented node on peridot
+    // (device tree: lineage_health fast_charge_node). Write 0=none, 1=fast,
+    // 2=super fast; bypass is unsupported per soong_config_set_bool.
+    let path = Path::new(hardware_contract::FASTCHARGE_PATH);
+    if path.is_file() {
+        return Some(path.to_path_buf());
+    }
     None
 }
 
@@ -859,30 +867,24 @@ fn configure_bypass(enabled: Option<bool>, threshold: Option<i32>) -> Result<(),
 }
 
 fn valid_charging_profile(profile: i32) -> bool {
-    matches!(profile, 0 | 25 | 33 | 65 | 85 | 90)
+    // fastcharge_enable domain: 0 none, 1 fast, 2 super fast.
+    matches!(profile, 0 | 1 | 2)
 }
 
 fn normalize_charging_profile(profile: i32) -> i32 {
     match profile {
-        // v1.18.x stored the old boost switch as 8. Preserve that intent as
-        // the full Peridot charging tier after upgrading.
-        8 => 90,
-        value if valid_charging_profile(value) => value,
+        0 => 0,
+        // v1.18.x stored the old boost switch as 8 and watt tiers 25/33/65/85/90.
+        // Those never reached hardware (apply_charging_profile was unimplemented),
+        // so map them onto the closest fastcharge tier instead of replaying a
+        // non-existent FCC write. 85/90/8 -> super fast, the rest -> fast.
+        8 | 85 | 90 => 2,
+        25 | 33 | 65 => 1,
+        1 => 1,
+        2 => 2,
         _ => 0,
     }
 }
-
-fn charging_profile_fcc_ua(profile: i32) -> Option<i64> {
-    match profile {
-        25 => Some(6_111_000),
-        33 => Some(8_067_000),
-        65 => Some(15_889_000),
-        85 => Some(20_778_000),
-        90 => Some(PERIDOT_MAX_FCC_UA),
-        _ => None,
-    }
-}
-
 fn read_i64(path: &Path) -> Option<i64> {
     read_trimmed(path).ok()?.parse::<i64>().ok()
 }
@@ -896,16 +898,14 @@ fn write_charging_if_present(path: &Path, value: &str) -> Result<Option<String>,
 }
 
 fn apply_charging_profile(profile: i32) -> Result<(), String> {
-    // Profile 0 = OEM default (no daemon intervention needed).
-    // Profiles 1-4 are defined in the UI but hardware calibration has never
-    // been populated. Until charging_calibration is written (factory test),
-    // all non-zero profiles silently retain OEM behaviour.
-    if profile == 0 {
-        return Ok(());
-    }
-    // Ponytail: OEM charging is active; charging_calibration never written.
-    // Add real write path when hardware calibration data is available.
-    Err("charging tiers unimplemented; OEM charging active".into())
+    let Some(path) = charging_fcc_path() else {
+        return Err("fastcharge_enable is not available on this kernel".into());
+    };
+    // Accept the legacy wattage scale from the UI and map it to the 0/1/2
+    // fastcharge domain before writing.
+    let mode = normalize_charging_profile(profile);
+    write_verified(&path, &mode.to_string())?;
+    Ok(())
 }
 
 #[cfg(target_os = "android")]
@@ -1223,9 +1223,15 @@ fn scheduler_name(path: &Path) -> Option<String> {
     None
 }
 
-fn ufs_scheduler_paths() -> Vec<PathBuf> {
+/// peridot uses `ufshc@1d84000`; some kernels spell the controller `ufshci`.
+/// Both names contain `ufshc`, so one substring check covers the pair.
+fn is_ufs_controller(path: &str) -> bool {
+    path.contains("ufshc")
+}
+
+fn ufs_scheduler_paths_in(base: &Path) -> Vec<PathBuf> {
     let mut paths = Vec::new();
-    let Ok(entries) = fs::read_dir("/sys/block") else {
+    let Ok(entries) = fs::read_dir(base) else {
         return paths;
     };
 
@@ -1239,7 +1245,7 @@ fn ufs_scheduler_paths() -> Vec<PathBuf> {
         let device = entry.path().join("device");
         let is_ufs = fs::canonicalize(&device)
             .ok()
-            .map(|path| path.to_string_lossy().contains("ufshci"))
+            .map(|path| is_ufs_controller(&path.to_string_lossy()))
             .unwrap_or(false);
         if !is_ufs {
             continue;
@@ -1253,6 +1259,10 @@ fn ufs_scheduler_paths() -> Vec<PathBuf> {
 
     paths.sort();
     paths
+}
+
+fn ufs_scheduler_paths() -> Vec<PathBuf> {
+    ufs_scheduler_paths_in(Path::new("/sys/block"))
 }
 
 fn io_scheduler() -> String {
@@ -2222,6 +2232,24 @@ fn restore_peridot_game_mode() -> Result<(), String> {
     Ok(())
 }
 
+fn apply_htpr_mode(value: i32) -> Result<(), String> {
+    let Some(path) = hardware_contract::htpr_path() else {
+        return Err("HTPR node is not available".into());
+    };
+    let file = Path::new(path);
+    let requested = if value != 0 { "1" } else { "0" };
+    fs::write(file, format!("{requested}\n")).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+fn restore_htpr_mode() -> Result<(), String> {
+    if let Some(value) = service_control::original("touch.htpr").and_then(|v| v.as_i64()) {
+        let path = hardware_contract::htpr_path().ok_or("HTPR node absent")?;
+        fs::write(Path::new(&path), format!("{}\n", value)).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 fn set_touch_profile(profile: i32) -> Result<(), String> {
     let _guard = touch_profile_apply_lock()
         .lock()
@@ -2233,24 +2261,45 @@ fn apply_touch_profile_locked(profile: i32) -> Result<(), String> {
     if !matches!(profile, 0 | 1) {
         return Err("480 Hz is pending adaptation; resampled touch profiles were removed".into());
     }
-    let previous = vendor_binder::get_touch_mode(0, 0)
-        .filter(|v| matches!(v, 0 | 1))
-        .ok_or("Xiaomi game-mode readback unavailable")?;
-    service_control::remember("touch.game_mode", serde_json::json!(previous))?;
     touch_resampler::set_target_hz(0)?;
-    let result = write_peridot_game_mode(profile)
-        .and_then(|_| mutate_persisted_state(|state| state.touch = profile));
-    if let Err(error) = result {
-        let rollback = write_peridot_game_mode(previous);
-        TOUCH_APPLY_ACK.store(0, Ordering::Release);
-        return Err(match rollback {
-            Ok(()) => error,
-            Err(e) => format!("{error}; rollback: {e}"),
-        });
+    // Peridot ships `vendor.lineage.touch-service.xiaomi` (HTPR sysfs toggle),
+    // not the Xiaomi TouchFeature AIDL service. Prefer AIDL when exposed, then
+    // fall back to the Lineage HTPR boolean so the control still works there.
+    if vendor_binder::touch_available() {
+        let previous = vendor_binder::get_touch_mode(0, 0)
+            .filter(|v| matches!(v, 0 | 1))
+            .ok_or("Xiaomi game-mode readback unavailable")?;
+        service_control::remember("touch.game_mode", serde_json::json!(previous))?;
+        let result = write_peridot_game_mode(profile)
+            .and_then(|_| mutate_persisted_state(|state| state.touch = profile));
+        if let Err(error) = result {
+            let rollback = write_peridot_game_mode(previous);
+            TOUCH_APPLY_ACK.store(0, Ordering::Release);
+            return Err(match rollback {
+                Ok(()) => error,
+                Err(e) => format!("{error}; rollback: {e}"),
+            });
+        }
+        TOUCH_STATE.store(profile, Ordering::Release);
+        TOUCH_CONTROL_PATH.store(1, Ordering::Release);
+    } else if hardware_contract::htpr_path().is_some() {
+        // HTPR is a boolean high-polling toggle, not a frequency selector. The
+        // persisted value (0 release, 1 hold) is journaled before the write so
+        // release_touch_control can restore it.
+        if profile == 1 {
+            let path = hardware_contract::htpr_path().ok_or("HTPR node absent")?;
+            let original = read_trimmed(path).unwrap_or_else(|_| "0".into());
+            service_control::remember("touch.htpr", serde_json::json!(original.trim()))?;
+        }
+        apply_htpr_mode(profile)?;
+        mutate_persisted_state(|state| state.touch = profile)?;
+        TOUCH_STATE.store(profile, Ordering::Release);
+        TOUCH_CONTROL_PATH.store(2, Ordering::Release);
+    } else {
+        return Err("touch control is unavailable on this stack".into());
     }
-    TOUCH_STATE.store(profile, Ordering::Release);
-    TOUCH_CONTROL_PATH.store(1, Ordering::Release);
-    // Confirm the HAL mode only; never report a tester observation as measured Hz.
+    // Confirm the chosen interface only; never report a tester observation as
+    // measured Hz.
     TOUCH_SUSTAINED_RATE.store(-1, Ordering::Release);
     TOUCH_INSTANT_RATE.store(-1, Ordering::Release);
     TOUCH_APPLY_ACK.store(1, Ordering::Release);
@@ -2263,6 +2312,7 @@ fn release_touch_control() -> Result<(), String> {
         .map_err(|_| "touch profile apply lock poisoned")?;
     touch_resampler::set_target_hz(0)?;
     restore_peridot_game_mode()?;
+    restore_htpr_mode()?;
     let originals = service_control::originals();
     let mut released = Vec::new();
     if service_control::original("touch.hal").is_some() && vendor_binder::touch_available() {
@@ -2300,7 +2350,7 @@ fn release_touch_control() -> Result<(), String> {
         if touch_node
             || matches!(
                 key.as_str(),
-                "touch.hal" | "touch.thp_rate" | "touch.game_mode"
+                "touch.hal" | "touch.thp_rate" | "touch.game_mode" | "touch.htpr"
             )
         {
             released.push(key);
@@ -5154,7 +5204,7 @@ fn snapshot() -> String {
             )
         })
         .unwrap_or((0, 0, 0));
-    let charging_fcc_ua = charging_fcc_path()
+    let charging_fastcharge = charging_fcc_path()
         .as_deref()
         .and_then(read_i64)
         .unwrap_or(-1);
@@ -5189,8 +5239,8 @@ fn snapshot() -> String {
             ((voltage as i128 * (current as i128).abs()) / 1_000_000_000) as i64
         })
         .unwrap_or(-1);
-    let touch_hal = if vendor_binder::touch_available()
-        || Path::new("/sys/devices/platform/goodix_ts.0/switch_report_rate").exists()
+    let touch_hal = if hardware_contract::touch_backend()
+        != hardware_contract::TouchBackend::None
     {
         1
     } else {
@@ -5213,7 +5263,7 @@ fn snapshot() -> String {
         ),
         format!("charging={charging}"),
         format!("charging_supported={charging_supported}"),
-        format!("charging_fcc_ua={charging_fcc_ua}"),
+        format!("charging_fastcharge={charging_fastcharge}"),
         format!("charging_adapter_w={}", charging_adapter_watts()),
         format!(
             "charging_pd_auth={}",
@@ -5278,6 +5328,24 @@ fn snapshot() -> String {
         format!("io={}", sanitize(io_scheduler())),
         format!("touch_hal={touch_hal}"),
         format!("display_hal={display_hal}"),
+        format!(
+            "hw_touch_backend={}",
+            hardware_contract::touch_backend().code()
+        ),
+        format!(
+            "hw_htpr={}",
+            i32::from(hardware_contract::htpr_path().is_some())
+        ),
+        format!(
+            "hw_ufs_devfreq={}",
+            i32::from(hardware_contract::ufs_devfreq().is_some())
+        ),
+        format!("hw_ufs_luns={}", ufs_scheduler_paths().len()),
+        format!("hw_dcvs_mask={}", hardware_contract::dcvs_mask()),
+        format!(
+            "hw_fastcharge={}",
+            i32::from(Path::new(hardware_contract::FASTCHARGE_PATH).is_file())
+        ),
         format!("touch={}", TOUCH_STATE.load(Ordering::Acquire)),
         format!(
             "display_color={}",
@@ -5685,6 +5753,11 @@ fn handle_enabled_command(line: &str) -> String {
     }
     if cmd == "GET snapshot" {
         return format!("OK {}", snapshot());
+    }
+    if cmd == "GET hardware.contract" {
+        // Read-only; safe to run while the service is disabled so a fresh
+        // install can be probed before enabling any control path.
+        return format!("OK {}", hardware_contract::probe());
     }
     // SettingsProvider owns palette persistence. These commands deliberately
     // bypass hardware state recording and all background reassertion guards.
@@ -6163,7 +6236,7 @@ mod tests {
     #[cfg(not(target_os = "android"))]
     use super::run_process_with_timeout;
     use super::{
-        AppUidPolicy, MI_THERMAL_NO_LIMITS_MODE, PersistedState, charging_profile_fcc_ua,
+        AppUidPolicy, MI_THERMAL_NO_LIMITS_MODE, PersistedState,
         classify_touch_panel_version, client_uid_allowed, cpu_frequency_drift_status,
         find_touch_thp_config_offset, gaming_dynamic_target_opp, mi_thermal_cpu_limit_request,
         migrate_legacy_gpu_profile_cpu_state, mtk_powerhal_cpu_range_request,
@@ -6208,29 +6281,29 @@ io.github.davvv98.peridotessential 10228 0 /data/user/0/io.github.davvv98.perido
     }
 
     #[test]
-    fn maps_every_charging_profile_to_peridots_verified_fcc_ceiling() {
+    fn maps_every_fastcharge_tier_to_peridot_normalized_value() {
+        // fastcharge_enable accepts 0 (none), 1 (fast) and 2 (super fast).
+        // normalize_charging_profile maps legacy v1.18.x values onto this domain.
         assert!(valid_charging_profile(0));
-        assert!(valid_charging_profile(25));
-        assert!(valid_charging_profile(33));
-        assert!(valid_charging_profile(65));
-        assert!(valid_charging_profile(85));
-        assert!(valid_charging_profile(90));
+        assert!(valid_charging_profile(1));
+        assert!(valid_charging_profile(2));
+        assert!(!valid_charging_profile(3));
         assert!(!valid_charging_profile(8));
-        assert!(!valid_charging_profile(100));
+        assert!(!valid_charging_profile(90));
 
-        assert_eq!(charging_profile_fcc_ua(0), None);
-        assert_eq!(charging_profile_fcc_ua(25), Some(6_111_000));
-        assert_eq!(charging_profile_fcc_ua(33), Some(8_067_000));
-        assert_eq!(charging_profile_fcc_ua(65), Some(15_889_000));
-        assert_eq!(charging_profile_fcc_ua(85), Some(20_778_000));
-        assert_eq!(charging_profile_fcc_ua(90), Some(22_000_000));
-    }
-
-    #[test]
-    fn migrates_the_legacy_boost_switch_to_the_full_90_watt_profile() {
-        assert_eq!(normalize_charging_profile(8), 90);
-        assert_eq!(normalize_charging_profile(33), 33);
+        // Legacy v1.18.x storage maps to fastcharge tiers.
+        assert_eq!(normalize_charging_profile(0), 0); // standard
+        assert_eq!(normalize_charging_profile(1), 1); // fast
+        assert_eq!(normalize_charging_profile(2), 2); // super fast
+        // Old storage: 8/85/90 → super fast (2), 25/33/65 → fast (1).
+        assert_eq!(normalize_charging_profile(8), 2);
+        assert_eq!(normalize_charging_profile(25), 1);
+        assert_eq!(normalize_charging_profile(33), 1);
+        assert_eq!(normalize_charging_profile(65), 1);
+        assert_eq!(normalize_charging_profile(85), 2);
+        assert_eq!(normalize_charging_profile(90), 2);
         assert_eq!(normalize_charging_profile(-1), 0);
+        assert_eq!(normalize_charging_profile(100), 0);
     }
 
     #[test]

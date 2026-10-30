@@ -16,7 +16,7 @@ const SOCKET_NAME: &str = "peridot_essentiald_v15";
 const REVERSE_SOCKET_NAME: &str = "peridot_essential_app_v15";
 const LOOPBACK_PORT: u16 = 732;
 const LOOPBACK_PRIVILEGE_PROBE_PORT: u16 = 731;
-const EXTENDED_VALUE_COUNT: usize = 134;
+const EXTENDED_VALUE_COUNT: usize = 140;
 
 #[repr(C)]
 struct SockAddrUn {
@@ -660,7 +660,7 @@ fn refresh(cache: &Cache) -> Result<(), String> {
             map.insert(k.to_string(), v.to_string());
         }
     }
-    if map.get("protocol").map(String::as_str) != Some("peridot.4") {
+    if map.get("protocol").map(String::as_str) != Some("peridot.5") {
         return Err("protocol mismatch".into());
     }
 
@@ -846,7 +846,7 @@ fn refresh(cache: &Cache) -> Result<(), String> {
         ("touch_resampler_path", 79),
         ("touch_resampler_error", 80),
         ("charging_supported", 105),
-        ("charging_fcc_ua", 106),
+        ("charging_fastcharge", 106),
         ("charging_adapter_w", 107),
         ("charging_pd_auth", 108),
         ("charging_quick_type", 109),
@@ -861,6 +861,13 @@ fn refresh(cache: &Cache) -> Result<(), String> {
         ("bypass_threshold", 119),
         ("bypass_phase", 120),
         ("bypass_error", 121),
+        // peridot-dev contract probe (read-only availability flags).
+        ("hw_touch_backend", 134),
+        ("hw_htpr", 135),
+        ("hw_ufs_devfreq", 136),
+        ("hw_ufs_luns", 137),
+        ("hw_dcvs_mask", 138),
+        ("hw_fastcharge", 139),
     ];
 
     for &(key, index) in extended_fields {
@@ -1338,7 +1345,7 @@ fn worker(cache: Arc<Cache>, rx: mpsc::Receiver<Command>) {
                     match refresh(&cache) {
                         Ok(()) => {
                             if !logged_pass {
-                                app_log(b"PERIDOT_BACKEND_APP=PASS protocol=peridot.4\0");
+                                app_log(b"PERIDOT_BACKEND_APP=PASS protocol=peridot.5\0");
                                 logged_pass = true;
                             }
                             logged_fail = false;
@@ -1428,7 +1435,7 @@ fn worker(cache: Arc<Cache>, rx: mpsc::Receiver<Command>) {
             match refresh(&cache) {
                 Ok(()) => {
                     if !logged_pass {
-                        app_log(b"PERIDOT_BACKEND_APP=PASS protocol=peridot.4\0");
+                        app_log(b"PERIDOT_BACKEND_APP=PASS protocol=peridot.5\0");
                         logged_pass = true;
                     }
                     logged_fail = false;

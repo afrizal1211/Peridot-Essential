@@ -3,7 +3,7 @@
 The Android app (`io.github.davvv98.peridotessential`) loads Flutter AOT and the
 Rust host. The host sends commands to the privileged `peridot_daemon`; the app
 does not use the system UID. Transport authenticates the client identity.
-Both ends must use protocol `peridot.4`.
+Both ends must use protocol `peridot.5`.
 
 ## CPU
 

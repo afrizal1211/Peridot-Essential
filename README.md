@@ -42,8 +42,8 @@ and contributors. See [CREDITS.md](CREDITS.md), [NOTICE](NOTICE) and [LICENSE](L
 | Daemon | `peridot_daemon` |
 | Diagnostic client | `peridot_ctl` |
 | Host library | `libperidot_essential_host.so` |
-| Protocol | `peridot.4` |
-| Internal version | `1.18.7` / `11807` |
+| Protocol | `peridot.5` |
+| Internal version | `1.18.8` / `11808` | |
 | Community maintainer | afrizal1221 |
 | Community chat | [@PocoF6Indo](https://t.me/PocoF6Indo) |
 
@@ -96,7 +96,7 @@ See [GITHUB_ACTIONS.md](GITHUB_ACTIONS.md) for signing and artifacts, or
 [docs/BUILDING.md](docs/BUILDING.md) for local builds.
 
 Install the complete module and reboot. The APK and daemon must both use
-`peridot.4`. The new application package has separate Android data and does not
+`peridot.5`. The new application package has separate Android data and does not
 update the previous package. The internal root module identifier is retained
 for upgrade compatibility; its processes and executables use Peridot names.
 

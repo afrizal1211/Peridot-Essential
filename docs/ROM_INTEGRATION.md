@@ -6,7 +6,7 @@ for this variant**. Matching project names do not establish matching vendor node
 
 Current identity: package `io.github.davvv98.peridotessential`, activity
 `PeridotActivity`, binaries `peridot_daemon` and `peridot_ctl`, host library
-`libperidot_essential_host.so`, protocol `peridot.4`.
+`libperidot_essential_host.so`, protocol `peridot.5`.
 
 Integration requires actual KGSL, cpufreq, Sconfig and Xiaomi service contexts,
 process domains and tests with SELinux enforcing. Export scripts are maintainer

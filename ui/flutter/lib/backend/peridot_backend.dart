@@ -528,7 +528,19 @@ final class PeridotBackend {
   bool setChargingBoost(bool enabled) => setChargingProfile(enabled ? 90 : 0);
 
   bool get chargingControlSupported => extendedValue(105) == 1;
-  int get chargingFccUa => extendedValue(106);
+  int get chargingMode {
+    // fastcharge_enable 0=none, 1=fast, 2=super fast. Map to the UI profile
+    // scale (0/25/33/65/85/90) so existing labels and selection tiles work.
+    switch (extendedValue(106)) {
+      case 2:
+        return 90;
+      case 1:
+        return 33;
+      default:
+        return 0;
+    }
+  }
+  int get chargingFastcharge => extendedValue(106);
   int get chargingAdapterWatts => extendedValue(107);
   bool get chargingPdAuthenticated => extendedValue(108) == 1;
   int get chargingQuickType => extendedValue(109);

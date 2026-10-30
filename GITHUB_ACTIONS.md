@@ -45,8 +45,8 @@ Tags matching v* trigger the workflow and publish artifacts. They require
 PERIDOT_KEYSTORE_BASE64 to prevent releases signed with temporary keys.
 
 ```sh
-git tag v1.18.7
-git push origin v1.18.7
+git tag v1.18.8
+git push origin v1.18.8
 ```
 
 The tag does not automatically change the internal APK version.

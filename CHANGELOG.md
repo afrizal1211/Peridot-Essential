@@ -1,5 +1,28 @@
 # Peridot Essential changelog
 
+## 1.18.8
+
+Peridot (`POCO F6`, SM8635) hardware interface release. Protocol bumped to
+`peridot.5`; version 1.18.8 / 11808.
+
+- Memory DVFS now targets the SM8635 DCVS boost floors instead of the retired
+  per-device devfreq rails. `subsystem.clocks.boost <rail> <hz>` writes a
+  `boost_freq` floor vote on the ddr/l3/llcc/ddrqos rails under
+  `/sys/devices/system/cpu/bus_dcvs`; `subsystem.clocks.trial memory <rail>`
+  runs a 30 s journaled trial. Legacy devfreq memory journals are dropped on
+  load because they never referenced a valid node.
+- Storage targets the `1d84000.ufshc` devfreq (accepts both `ufshc` and
+  `ufshci` names); UFS scheduler probing reads it from the hardware contract.
+- Charging writes `fastcharge_enable` (0 none / 1 fast / 2 super fast) at
+  `/sys/class/qcom-battery/fastcharge_enable`. The UI now offers OEM (0), Fast
+  (33) and Super Fast (90) profiles; legacy 25/33/65/85/90/8 storage values are
+  normalized onto that domain.
+- Touch falls back to the LineageOS HTPR boolean (`bump_sample_rate`) when the
+  Xiaomi TouchFeature AIDL service is absent; the chosen interface is exposed
+  as `touchHal`/`touchBackend` and restored on release.
+- New read-only probe `GET hardware.contract` reports DCVS rails, UFS devfreq,
+  fastcharge node and touch backend for on-device validation.
+
 ## 1.18.7
 
 Documentation and in-app copy accuracy for the community build. Protocol stays

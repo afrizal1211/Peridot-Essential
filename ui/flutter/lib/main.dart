@@ -6239,41 +6239,29 @@ class _ChargingMetric extends StatelessWidget {
 
 Color _chargingProfileAccent(int watts) => switch (watts) {
   0 => const Color(0xFF67C2FF),
-  25 => const Color(0xFF35C997),
   33 => const Color(0xFF35C997),
-  65 => const Color(0xFF35C997),
-  85 => const Color(0xFF35C997),
   90 => const Color(0xFFFFA340),
   _ => const Color(0xFF35C997),
 };
 
 IconData _chargingProfileIcon(int watts) => switch (watts) {
   0 => Icons.auto_awesome_rounded,
-  25 => Icons.eco_rounded,
   33 => Icons.battery_charging_full_rounded,
-  65 => Icons.bolt_rounded,
-  85 => Icons.flash_on_rounded,
   90 => Icons.offline_bolt_rounded,
   _ => Icons.bolt_rounded,
 };
 
 String _chargingProfileName(int watts) => switch (watts) {
   0 => 'OEM Adaptive',
-  25 => 'Cool Daily',
-  33 => 'Balanced Fast',
-  65 => 'Fast Daily',
-  85 => 'Near Maximum',
-  90 => 'HyperCharge',
-  _ => 'Charge Output',
+  33 => 'Fast',
+  90 => 'Super Fast',
+  _ => 'Charging',
 };
 
 String _chargingProfileDescription(int watts) => switch (watts) {
-  0 => 'ROM-managed charging, taper and battery care',
-  25 => 'Lower-heat everyday charging',
-  33 => 'Balanced speed and temperature',
-  65 => 'Fast daily charging with headroom',
-  85 => 'Near-maximum charging',
-  90 => 'Full software charging ceiling',
+  0 => 'ROM and battery controller manage charging',
+  33 => 'fastcharge_enable = 1; standard Xiaomi fast charging',
+  90 => 'fastcharge_enable = 2; Xiaomi HyperCharge / PD PPS ceiling',
   _ => 'Select a charging profile',
 };
 
@@ -6704,7 +6692,7 @@ class _ChargingPowerSpectrum extends StatelessWidget {
   final bool enabled;
   final ValueChanged<int> onSelect;
 
-  static const List<int> _profiles = <int>[25, 33, 65, 85, 90];
+  static const List<int> _profiles = <int>[0, 33, 90];
 
   Widget _profileTile(
     BuildContext context, {
@@ -6766,7 +6754,7 @@ class _ChargingPowerSpectrum extends StatelessWidget {
                 ),
                 const SizedBox(width: 5),
                 Text(
-                  '$watts W',
+                  watts == 0 ? 'OEM' : '$watts W',
                   style: TextStyle(
                     fontSize: 13.2,
                     height: 1,
