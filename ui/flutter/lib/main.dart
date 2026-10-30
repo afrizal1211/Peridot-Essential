@@ -13,6 +13,7 @@ import 'package:flutter/scheduler.dart';
 
 import 'aurora_game_engine.dart';
 import 'release_identity.dart';
+import 'peridot_logger.dart';
 import 'page_motion.dart';
 import 'root_pager.dart';
 import 'touch_light.dart';
@@ -114,6 +115,8 @@ extension PeridotScreenName on PeridotScreen {
         return 'Per-App Controls';
       case PeridotScreen.subsystemClocks:
         return 'Memory DVFS & UFS';
+      case PeridotScreen.logs:
+        return 'Application & System Logs';
     }
   }
 
@@ -830,7 +833,7 @@ class _PeridotShellState extends State<PeridotShell>
       case PeridotScreen.resolution:
         return ResolutionScreen(onBack: _back);
       case PeridotScreen.diagnostics:
-        return DiagnosticsScreen(onBack: _back, onOpen: onOpen);
+        return DiagnosticsScreen(onBack: _back, onOpen: _openDetail);
       case PeridotScreen.zramSwap:
         return ZramSwapScreen(onBack: _back);
       case PeridotScreen.maliGpu:

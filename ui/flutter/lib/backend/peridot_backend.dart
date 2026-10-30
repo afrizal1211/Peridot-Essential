@@ -459,7 +459,7 @@ final class PeridotBackend {
         'peridot_host_request_photo_permission',
       );
 
-      final DynamicLibrary libc = DynamicLibrary.open('libc.so');
+      final ffi.DynamicLibrary libc = ffi.DynamicLibrary.open('libc.so');
       _mallocNative = libc.lookupFunction<_LogsAllocNative, _LogsAllocDart>('malloc');
       _freeNative = libc.lookupFunction<_LogsFreeNative, _LogsFreeDart>('free');
       _logsNative = lib.lookupFunction<_GetLogsNative, _GetLogsDart>(

@@ -1,7 +1,8 @@
 // Peridot logger — in-memory ring buffer, accessible in-app.
 //
 // Skipped: disk persistence, log export (add when user requests).
-// Add GET logs from daemon when needed (daemon can contribute via extended value).
+
+import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
@@ -39,16 +40,20 @@ class PeridotLogEntry {
 /// Max entries before oldest are dropped.
 const int kPeridotLogMax = 200;
 
-class _PeridotLogger {
-  _PeridotLogger._();
-  static final _PeridotLogger _instance = _PeridotLogger._();
+/// Singleton logger. Call via `PeridotLogger().info(...)` / `PeridotLogger().clear()`.
+class PeridotLogger {
+  PeridotLogger._();
+  static final PeridotLogger _instance = PeridotLogger._();
   factory PeridotLogger() => _instance;
 
   final List<PeridotLogEntry> _entries = [];
   final _lock = Object();
 
+  /// Snapshot of entries at call time.
   List<PeridotLogEntry> get entries {
-    synchronized(_lock) => List.unmodifiable(_entries);
+    // ignore: unnecessary_statements
+    synchronized(_lock);
+    return List<PeridotLogEntry>.unmodifiable(_entries);
   }
 
   void _add(PeridotLogLevel level, String source, String message) {
@@ -61,7 +66,7 @@ class _PeridotLogger {
         message: message,
       ));
     }
-    debugPrint('[Peridot/${source}] ${level.name.toUpperCase()}: $message');
+    debugPrint('[Peridot/$source] ${level.name.toUpperCase()}: $message');
   }
 
   void info(String source, String message) => _add(PeridotLogLevel.info, source, message);
@@ -93,6 +98,3 @@ class _PeridotLogger {
     synchronized(_lock) => _entries.clear();
   }
 }
-
-/// Convenience top-level accessor.
-PeridotLogEntry? Function<T>(String, String, T?) logResultNull = PeridotLogger().logResultNull;
