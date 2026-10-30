@@ -1,7 +1,7 @@
 # Peridot Essential
 
-Hardware control application for **POCO F7 (`peridot`)**, Snapdragon 8s Gen 4
-(`SM8735`), Adreno 825 GPU and Android ARM64. It includes a Flutter interface,
+Hardware control application for **POCO F6 (`peridot`)**, Snapdragon 8s Gen 3
+(`SM8635`), Adreno 735 GPU and Android ARM64. It includes a Flutter interface,
 a Rust host and a separate privileged daemon provided by the root module.
 
 <img src="branding/peridot-icon-master.png" alt="Peridot Essential logo" width="128" />
@@ -21,12 +21,12 @@ This build is distributed by **afrizal1221** for the
 
 **Peridot Essential is an adaptation of Rodin Essential, created by
 [NEESCHAL-3](https://github.com/NEESCHAL-3) and contributors.**
-The Peridot name and POCO F7 support do not replace the original authorship.
+The Peridot name and POCO F6 support do not replace the original authorship.
 
 - Original project: [Rodin Essential](https://github.com/NEESCHAL-3/Rodin-Essential).
 - Fork: [Peridot-Essential](https://github.com/davvv98/Peridot-Essential).
-- Peridot / POCO F7 adaptation maintained by **davvv98**.
-- Adaptation changes: KGSL backend, F7 CPU policies, Sconfig selector, Peridot
+- Peridot / POCO F6 adaptation maintained by **davvv98**.
+- Adaptation changes: KGSL backend, F6 CPU policies, Sconfig selector, Peridot
   identity, icons, documentation and build adjustments.
 
 The inherited architecture and features remain the work of the original author

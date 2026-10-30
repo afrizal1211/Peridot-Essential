@@ -6,7 +6,7 @@ must follow detected nodes rather than fixed paths or clocks from another platfo
 Changing ZRAM size or compression may require recreating the swap device.
 Do not repeat those operations when the configuration already matches.
 Memory/UFS clock options require actual backend capability detection; they have
-not been validated for this POCO F7 adaptation.
+not been validated for this POCO F6 adaptation.
 
 Check current readback and operation errors. A saved profile does not prove that
 a device applied a clock or scheduler.

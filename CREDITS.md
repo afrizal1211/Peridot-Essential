@@ -19,7 +19,7 @@ Fork: https://github.com/davvv98/Peridot-Essential
 Starting commit recorded in BASE_COMMIT.txt:
 `d2ac2fcdb35943088258e9bd30dbb0e2266203c2`.
 
-This adaptation adds POCO F7 / Snapdragon 8s Gen 4 support, a KGSL backend,
+This adaptation adds POCO F6 / Snapdragon 8s Gen 3 support, a KGSL backend,
 CPU policies 0/2/5/7, separate requested and effective ranges, Xiaomi Sconfig
 selection, Peridot package and executable names, icons and device documentation.
 Development included assistance from AI tools.

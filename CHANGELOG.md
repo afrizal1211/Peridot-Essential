@@ -2,7 +2,7 @@
 
 ## 1.18.5
 
-POCO F7 adaptation revision; current protocol: `peridot.4`. This log describes
+POCO F6 adaptation revision; current protocol: `peridot.4`. This log describes
 the delivered source and does not imply that a release has already been published.
 
 - Disable implicit Rust binary discovery: only peridot_daemon/peridot_ctl are built;

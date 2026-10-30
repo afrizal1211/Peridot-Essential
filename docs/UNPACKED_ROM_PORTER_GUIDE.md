@@ -1,6 +1,6 @@
 # Peridot port maintainer guide
 
-This adaptation targets POCO F7 peridot with Xiaomi vendor interfaces and display
+This adaptation targets POCO F6 peridot with Xiaomi vendor interfaces and display
 services. A system port from another brand does not itself change the physical
 vendor interfaces.
 

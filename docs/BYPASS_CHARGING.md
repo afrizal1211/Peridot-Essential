@@ -1,7 +1,7 @@
 # Peridot charging and bypass
 
 The adaptation preserves OEM charging and available battery/charger telemetry.
-Charging power profiles are not calibrated for the POCO F7 and are rejected as
+Charging power profiles are not calibrated for the POCO F6 and are rejected as
 unavailable. Current values from other hardware are not reused.
 
 Bypass support requires the explicit capability and state nodes checked by the

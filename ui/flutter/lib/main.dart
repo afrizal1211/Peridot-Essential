@@ -5157,7 +5157,7 @@ class SupportScreen extends StatelessWidget {
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        'Engineered exclusively for Snapdragon 8s Gen 4 (MT6899 / peridot)',
+                        'Engineered exclusively for Snapdragon 8s Gen 3 (SM8635 / peridot)',
                         style: TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.w600,
@@ -8175,7 +8175,7 @@ class _CpuControlScreenState extends State<CpuControlScreen> {
                                     fit: BoxFit.scaleDown,
                                     alignment: Alignment.centerLeft,
                                     child: Text(
-                                      'Snapdragon 8s Gen 4 CPU',
+                                      'Snapdragon 8s Gen 3 CPU',
                                       style: TextStyle(
                                         fontSize: 14.5,
                                         fontWeight: FontWeight.w800,
@@ -12469,7 +12469,7 @@ class _MaliGpuScreenState extends State<MaliGpuScreen> {
                 HeroCard(
                   icon: modeIcon,
                   accent: mainColor,
-                  title: 'Adreno 825 Graphics',
+                  title: 'Adreno 735 Graphics',
                   subtitle: modeSummary,
                 ),
                 const SizedBox(height: 12),
@@ -12644,7 +12644,7 @@ class _MaliGpuScreenState extends State<MaliGpuScreen> {
                       ),
                     ),
                     Text(
-                      'Snapdragon 8s Gen 4 · Adreno 825',
+                      'Snapdragon 8s Gen 3 · Adreno 735',
                       style: TextStyle(
                         fontSize: 11.5,
                         color: colors.onSurfaceVariant,
@@ -13123,7 +13123,7 @@ class _MaliGpuScreenState extends State<MaliGpuScreen> {
             ],
           ),
           const SizedBox(height: 12),
-          _buildDetailRow(colors, 'GPU Architecture', 'Adreno 825'),
+          _buildDetailRow(colors, 'GPU Architecture', 'Adreno 735'),
           _buildDetailRow(
             colors,
             'Active Core Mask',
