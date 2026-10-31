@@ -12362,23 +12362,26 @@ class _AdrenoGpuScreenState extends State<AdrenoGpuScreen> {
                 ? snapshot.performanceProfile
                 : 0);
         final int requestedMaxFreq = switch (activePerf) {
-          3 => 1150,
+          3 => rawMaxFreq > 0 ? rawMaxFreq : 1150,
           1 => 1150,
           2 => 510,
           _ => rawMaxFreq,
         };
+        final String beastTargetLabel =
+            '${(requestedMaxFreq / 1000).toStringAsFixed(2)} GHz';
         final bool hasHardwareReadback = _optimisticProfile == null;
         final bool isThrottledByOs =
             hasHardwareReadback &&
             ((activePerf == 3 &&
-                    ((liveCurFreq > 0 && liveCurFreq < 1150) ||
-                        rawMaxFreq < requestedMaxFreq)) ||
+                    (liveCurFreq > 0 && liveCurFreq < requestedMaxFreq) ||
+                rawMaxFreq < requestedMaxFreq) ||
                 ((activePerf == 1 || activePerf == 2) &&
                     rawMaxFreq < requestedMaxFreq));
         final bool isBeast =
             activePerf == 3 ||
             isUncapped ||
-            (activeMinFreq == 1150 && activeMaxFreq == 1150);
+            (activeMinFreq == requestedMaxFreq &&
+                activeMaxFreq == requestedMaxFreq);
         final bool isGaming = !isBeast && activePerf == 1;
         final bool isBattery = !isBeast && activePerf == 2;
         final Color mainColor = isBeast
@@ -12397,8 +12400,8 @@ class _AdrenoGpuScreenState extends State<AdrenoGpuScreen> {
                         : Icons.balance_rounded));
         final String modeSummary = isBeast
             ? (liveCurFreq > 0
-                  ? 'Live: $liveCurFreq MHz · Fixed at 1.15 GHz'
-                  : 'Requested 1.15 GHz · effective limit differs')
+                  ? 'Live: $liveCurFreq MHz · Fixed at $beastTargetLabel'
+                  : 'Requested $beastTargetLabel · effective limit differs')
             : (isGaming
                   ? (liveCurFreq > 0
                         ? 'Live: $liveCurFreq MHz · Scaling freely to 1.15 GHz'
@@ -12461,6 +12464,7 @@ class _AdrenoGpuScreenState extends State<AdrenoGpuScreen> {
                   liveCurFreq: liveCurFreq,
                   minFreq: activeMinFreq,
                   maxFreq: activeMaxFreq,
+                  requestedMaxFreq: requestedMaxFreq,
                   isUncapped: isUncapped,
                   isThrottledByOs: isThrottledByOs,
                   profileVerified: profileVerified,
@@ -12537,6 +12541,7 @@ class _AdrenoGpuScreenState extends State<AdrenoGpuScreen> {
     required int liveCurFreq,
     required int minFreq,
     required int maxFreq,
+    required int requestedMaxFreq,
     required bool isUncapped,
     required bool isThrottledByOs,
     required bool profileVerified,
@@ -12545,7 +12550,7 @@ class _AdrenoGpuScreenState extends State<AdrenoGpuScreen> {
     final bool isBeast =
         activeProfile == 3 ||
         isUncapped ||
-        (minFreq == 1150 && maxFreq == 1150);
+        (minFreq == requestedMaxFreq && maxFreq == requestedMaxFreq);
     final bool isGaming = !isBeast && activeProfile == 1;
     final bool isBattery = !isBeast && activeProfile == 2;
 
@@ -12559,12 +12564,14 @@ class _AdrenoGpuScreenState extends State<AdrenoGpuScreen> {
 
     final String activeDisplayClock = liveCurFreq > 0 ? '$liveCurFreq' : '—';
 
+    final String beastTargetLabel =
+        '${(requestedMaxFreq / 1000).toStringAsFixed(2)} GHz';
     final String clockSubtext = isBeast
         ? (isThrottledByOs
-              ? 'External clock limit detected · 1150 MHz remains the target'
-              : (profileVerified && liveCurFreq == 1150
-                    ? 'Fixed 1.15 GHz target verified from live hardware telemetry'
-                    : 'Fixed 1.15 GHz target requested · waiting for live verification'))
+              ? 'External clock limit detected · $beastTargetLabel remains the target'
+              : (profileVerified && liveCurFreq == requestedMaxFreq
+                    ? 'Fixed $beastTargetLabel target verified from live hardware telemetry'
+                    : 'Fixed $beastTargetLabel target requested · waiting for live verification'))
         : (isGaming
               ? (liveCurFreq > 0
                     ? 'Dynamic Gaming Load ($liveCurFreq MHz · 1.15 GHz Ceiling)'
@@ -12578,7 +12585,7 @@ class _AdrenoGpuScreenState extends State<AdrenoGpuScreen> {
                           : 'Waiting for OEM GPU telemetry')));
 
     final String badgeTitle = isBeast
-        ? '1.15 GHz FIXED TARGET'
+        ? '$beastTargetLabel FIXED TARGET'
         : (isGaming
               ? 'GAMING DYNAMIC BOOST'
               : (isBattery ? 'BATTERY SAVER CLAMP' : 'DYNAMIC BALANCED'));
