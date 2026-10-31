@@ -72,7 +72,7 @@ enum PeridotScreen {
   resolution,
   diagnostics,
   zramSwap,
-  maliGpu,
+  adrenoGpu,
   systemColors,
   perAppControls,
   subsystemClocks,
@@ -106,7 +106,7 @@ extension PeridotScreenName on PeridotScreen {
         return 'Diagnostics';
       case PeridotScreen.zramSwap:
         return 'ZRAM & Swap Manager';
-      case PeridotScreen.maliGpu:
+      case PeridotScreen.adrenoGpu:
         return 'Adreno GPU & KGSL';
       case PeridotScreen.systemColors:
         return 'System Colors';
@@ -835,8 +835,8 @@ class _PeridotShellState extends State<PeridotShell>
         return DiagnosticsScreen(onBack: _back, onOpen: _openDetail);
       case PeridotScreen.zramSwap:
         return ZramSwapScreen(onBack: _back);
-      case PeridotScreen.maliGpu:
-        return MaliGpuScreen(onBack: _back);
+      case PeridotScreen.adrenoGpu:
+        return AdrenoGpuScreen(onBack: _back);
       case PeridotScreen.systemColors:
         return SystemColorsScreen(onBack: _back);
       case PeridotScreen.perAppControls:
@@ -3356,7 +3356,7 @@ class _HomePulseHero extends StatelessWidget {
                                       : 'Waiting for GPU',
                                   icon: Icons.sports_esports_rounded,
                                   accent: const Color(0xFFFF5252),
-                                  onTap: () => onOpen(PeridotScreen.maliGpu),
+                                  onTap: () => onOpen(PeridotScreen.adrenoGpu),
                                 ),
                               ),
                               const SizedBox(width: 7),
@@ -3694,7 +3694,7 @@ class _HomeQuickActions extends StatelessWidget {
               subtitle: 'Profiles',
               icon: Icons.sports_esports_rounded,
               accent: const Color(0xFFFF5252),
-              onTap: () => onOpen(PeridotScreen.maliGpu),
+              onTap: () => onOpen(PeridotScreen.adrenoGpu),
             ),
           ),
           Container(
@@ -4073,7 +4073,7 @@ class _LiveOverviewGrid extends StatelessWidget {
                       subtitle: gpuSubtitle,
                       icon: Icons.sports_esports_rounded,
                       accent: const Color(0xFFFF7279),
-                      onTap: () => onOpen(PeridotScreen.maliGpu),
+                      onTap: () => onOpen(PeridotScreen.adrenoGpu),
                     ),
                   ),
                   Container(
@@ -4430,7 +4430,7 @@ class HubsScreen extends StatelessWidget {
                 gpuAccent: const Color(0xFFFF5252),
                 onBattery: () => onOpen(PeridotScreen.charging),
                 onCpu: () => onOpen(PeridotScreen.cpuControl),
-                onGpu: () => onOpen(PeridotScreen.maliGpu),
+                onGpu: () => onOpen(PeridotScreen.adrenoGpu),
               ),
             ),
             const SizedBox(height: 12),
@@ -4458,7 +4458,7 @@ class HubsScreen extends StatelessWidget {
                       value: gpuLabel,
                       icon: Icons.sports_esports_rounded,
                       accent: const Color(0xFFFF5252),
-                      onTap: () => onOpen(PeridotScreen.maliGpu),
+                      onTap: () => onOpen(PeridotScreen.adrenoGpu),
                     ),
                     const _HubControlDivider(),
                     _HubControlRow(
@@ -12110,16 +12110,16 @@ class _AlgorithmOptionCard extends StatelessWidget {
   }
 }
 
-class MaliGpuScreen extends StatefulWidget {
-  const MaliGpuScreen({required this.onBack, super.key});
+class AdrenoGpuScreen extends StatefulWidget {
+  const AdrenoGpuScreen({required this.onBack, super.key});
 
   final VoidCallback onBack;
 
   @override
-  State<MaliGpuScreen> createState() => _MaliGpuScreenState();
+  State<AdrenoGpuScreen> createState() => _AdrenoGpuScreenState();
 }
 
-class _MaliGpuScreenState extends State<MaliGpuScreen> {
+class _AdrenoGpuScreenState extends State<AdrenoGpuScreen> {
   int? _optimisticProfile;
   bool? _optimisticUncap;
   int? _optimisticMinFreq;
