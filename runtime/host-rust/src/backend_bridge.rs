@@ -110,6 +110,7 @@ struct Cache {
     cpu_available_mhz: [Mutex<Vec<i32>>; 3],
     gpu_gov: AtomicI32,
     io_scheduler: AtomicI32,
+    tcp_congestion: AtomicI32,
     touch_hal: AtomicI32,
     display_hal: AtomicI32,
     touch_state: AtomicI32,
@@ -148,6 +149,7 @@ impl Cache {
             cpu_available_mhz: std::array::from_fn(|_| Mutex::new(Vec::new())),
             gpu_gov: AtomicI32::new(-1),
             io_scheduler: AtomicI32::new(-1),
+            tcp_congestion: AtomicI32::new(-1),
             touch_hal: AtomicI32::new(0),
             display_hal: AtomicI32::new(0),
             touch_state: AtomicI32::new(-1),
@@ -184,6 +186,7 @@ enum Command {
     CpuGovernor(i32, i32),
     GpuGovernor(i32),
     IoScheduler(i32),
+    TcpCongestion(i32),
     Extended(i32, i32, i32),
 }
 
@@ -208,6 +211,7 @@ fn command_label(c: &Command) -> &'static str {
         },
         Command::GpuGovernor(_) => "gpu_gov",
         Command::IoScheduler(_) => "io_scheduler",
+        Command::TcpCongestion(_) => "tcp_congestion",
         Command::Extended(op, _, _) => match op {
             18 => "cpu_manual",
             19 => "cpu_min_freq",
@@ -738,6 +742,18 @@ fn io_code(value: &str) -> i32 {
     }
 }
 
+fn tcp_code(value: &str) -> i32 {
+    match value {
+        "cubic" => 0,
+        "reno" => 1,
+        "bbr" => 2,
+        "htcp" => 3,
+        "westwood" => 4,
+        "scalable" => 5,
+        _ => -1,
+    }
+}
+
 fn refresh(cache: &Cache) -> Result<(), String> {
     let body = request("GET snapshot")?;
     let mut map = std::collections::HashMap::<String, String>::new();
@@ -809,6 +825,10 @@ fn refresh(cache: &Cache) -> Result<(), String> {
     );
     cache.io_scheduler.store(
         map.get("io").map(|v| io_code(v)).unwrap_or(-1),
+        Ordering::Release,
+    );
+    cache.tcp_congestion.store(
+        map.get("tcp_congestion").map(|v| tcp_code(v)).unwrap_or(-1),
         Ordering::Release,
     );
     cache
@@ -1023,6 +1043,18 @@ fn io_name(code: i32) -> Option<&'static str> {
     }
 }
 
+fn tcp_name(code: i32) -> Option<&'static str> {
+    match code {
+        0 => Some("cubic"),
+        1 => Some("reno"),
+        2 => Some("bbr"),
+        3 => Some("htcp"),
+        4 => Some("westwood"),
+        5 => Some("scalable"),
+        _ => None,
+    }
+}
+
 fn perform(command: Command) -> Result<(), String> {
     match command {
         Command::Refresh => Ok(()),
@@ -1065,6 +1097,10 @@ fn perform(command: Command) -> Result<(), String> {
         Command::IoScheduler(code) => {
             let name = io_name(code).ok_or("invalid io scheduler code")?;
             request(&format!("SET io.scheduler {name}")).map(|_| ())
+        }
+        Command::TcpCongestion(code) => {
+            let name = tcp_name(code).ok_or("invalid tcp congestion code")?;
+            request(&format!("SET tcp.congestion {name}")).map(|_| ())
         }
         Command::Extended(op, a, b) => {
             let command = match op {
@@ -1224,6 +1260,7 @@ fn peridot_command_name(command: &Command) -> &'static str {
         Command::CpuGovernor(_, _) => "cpu.governor",
         Command::GpuGovernor(_) => "gpu.governor",
         Command::IoScheduler(_) => "ufs.scheduler",
+        Command::TcpCongestion(_) => "tcp.congestion",
         Command::Extended(_, _, _) => "extended.feature",
     }
 }
@@ -1749,6 +1786,16 @@ pub extern "C" fn peridot_backend_get_ufs_scheduler() -> i32 {
 #[unsafe(no_mangle)]
 pub extern "C" fn peridot_backend_set_ufs_scheduler(code: i32) -> i32 {
     send(Command::IoScheduler(code))
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn peridot_backend_get_tcp_congestion() -> i32 {
+    runtime()
+        .map(|r| r.cache.tcp_congestion.load(Ordering::Acquire))
+        .unwrap_or(-1)
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn peridot_backend_set_tcp_congestion(code: i32) -> i32 {
+    send(Command::TcpCongestion(code))
 }
 #[unsafe(no_mangle)]
 pub extern "C" fn peridot_backend_get_touch_hal() -> i32 {

@@ -9869,6 +9869,15 @@ class _AdvancedConfigurationScreenState
       _ChoiceOption(3, 'bfq'),
     ];
 
+    const List<_ChoiceOption> tcpAlgorithms = <_ChoiceOption>[
+      _ChoiceOption(0, 'cubic'),
+      _ChoiceOption(1, 'reno'),
+      _ChoiceOption(2, 'bbr'),
+      _ChoiceOption(3, 'htcp'),
+      _ChoiceOption(4, 'westwood'),
+      _ChoiceOption(5, 'scalable'),
+    ];
+
     return _BackendSnapshotBuilder(
       builder: (PeridotBackendSnapshot snapshot) {
         final PeridotBackend backend = PeridotBackend.instance;
@@ -9973,6 +9982,19 @@ class _AdvancedConfigurationScreenState
                 label: 'UFS scheduler persistence',
                 state: ioDrift,
               ),
+            ),
+            const SizedBox(height: 12),
+            const SectionLabel('Network tuning'),
+            const SizedBox(height: 8),
+            _ChoiceCard(
+              title: 'TCP congestion control',
+              subtitle: 'Congestion avoidance algorithm for all TCP sockets',
+              icon: Icons.swap_vert_rounded,
+              accent: Theme.of(context).colorScheme.primary,
+              selectedCode: snapshot.tcpCongestion,
+              options: tcpAlgorithms,
+              enabled: snapshot.controlsAvailable && !snapshot.busy,
+              onSelected: backend.setTcpCongestion,
             ),
           ],
         );
@@ -13202,6 +13224,40 @@ class _LogScreenState extends State<LogScreen> {
     });
   }
 
+  String _buildExportText() {
+    final now = DateTime.now();
+    final header = StringBuffer(
+      'Peridot Essential Logs — ${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')} '
+      '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}\n',
+    );
+    header.writeln('─' * 50);
+    if (_local.isNotEmpty) {
+      header.writeln('APP EVENTS (${_local.length})');
+      for (final e in _local.reversed) {
+        header.writeln(
+          '${e.time.hour.toString().padLeft(2, '0')}:'
+          '${e.time.minute.toString().padLeft(2, '0')}:'
+          '${e.time.second.toString().padLeft(2, '0')} '
+          '[${e.source}] '
+          '${e.level.symbol} ${e.message}',
+        );
+      }
+      header.writeln('─' * 50);
+    }
+    if (_daemon.isNotEmpty) {
+      header.writeln('DAEMON / HOST LINES (${_daemon.length})');
+      for (final line in _daemon.reversed) {
+        header.writeln(line);
+      }
+    }
+    return header.toString();
+  }
+
+  void _exportToTxt() {
+    final text = _buildExportText();
+    PeridotBackend.instance.exportLogs(text);
+  }
+
   @override
   Widget build(BuildContext context) {
     const Color accent = Color(0xFF74E6C6);
@@ -13266,6 +13322,14 @@ class _LogScreenState extends State<LogScreen> {
                   backend.refresh();
                   _load();
                 },
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _LogAction(
+                icon: Icons.share_rounded,
+                label: 'Export to TXT',
+                onTap: _exportToTxt,
               ),
             ),
           ],

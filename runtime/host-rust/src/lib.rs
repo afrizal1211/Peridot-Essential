@@ -294,6 +294,149 @@ fn peridot_photo_init(activity: *mut ANativeActivity) {
     peridot_photo_refresh_permission(activity);
 }
 
+static PERIDOT_EXPORT_PATH: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+static mut PERIDOT_EXPORT_CHOREOGRAPHER: i64 = 0;
+
+extern "C" fn on_export_frame(
+    _frame_time_nanos: i64,
+    _data: *mut c_void,
+) {
+    let path_ptr = PERIDOT_EXPORT_PATH.load(Ordering::Acquire);
+    PERIDOT_EXPORT_PATH.store(0, Ordering::Release);
+    if path_ptr == 0 {
+        return;
+    }
+    // SAFETY: path_ptr was stored as a Box<String> via Box::into_raw.
+    let path_box = unsafe { Box::from_raw(path_ptr as *mut String) };
+    let file_path = std::path::PathBuf::from(&*path_box);
+    drop(path_box);
+
+    let activity_ptr =
+        PERIDOT_HAPTIC_ACTIVITY.load(Ordering::Acquire) as *mut ANativeActivity;
+    if activity_ptr.is_null() {
+        return;
+    }
+
+    let vm_raw = unsafe { (*activity_ptr).vm as *mut jni::sys::JavaVM };
+    if vm_raw.is_null() {
+        return;
+    }
+    let vm = match unsafe { jni::JavaVM::from_raw(vm_raw) } {
+        Ok(vm) => vm,
+        Err(_) => return,
+    };
+    let activity_raw = unsafe { (*activity_ptr).clazz as jni::sys::jobject };
+    let mut env = match vm.attach_current_thread() {
+        Ok(env) => env,
+        Err(_) => return,
+    };
+    let export_result: jni::errors::Result<()> = (|| {
+        let activity = unsafe { jni::objects::JObject::from_raw(activity_raw) };
+        let action_send = env.new_string("android.intent.action.SEND")?;
+        let intent_class = env.find_class("android/content/Intent")?;
+        let intent = env.new_object(
+            &intent_class,
+            "(Ljava/lang/String;)V",
+            &[(&action_send).into()],
+        )?;
+
+        // Read the file content for EXTRA_TEXT, then pass as a Java String.
+        let text_bytes = std::fs::read(&file_path).unwrap_or_default();
+        let text_str = String::from_utf8_lossy(&text_bytes);
+        let text_jstr = env.new_string(text_str.as_ref())?;
+        let extra_key = env.new_string("android.intent.extra.TEXT")?;
+
+        env.call_method(
+            &intent,
+            "putExtra",
+            "(Ljava/lang/String;Ljava/lang/CharSequence;)Landroid/content/Intent;",
+            &[
+                jni::objects::JValue::Object(&extra_key),
+                jni::objects::JValue::Object(&text_jstr),
+            ],
+        )?;
+        let mime_type = env.new_string("text/plain")?;
+        env.call_method(
+            &intent,
+            "setType",
+            "(Ljava/lang/String;)Landroid/content/Intent;",
+            &[jni::objects::JValue::Object(&mime_type)],
+        )?;
+        env.call_method(
+            &activity,
+            "startActivity",
+            "(Landroid/content/Intent;)V",
+            &[jni::objects::JValue::Object(&intent)],
+        )?;
+        Ok(())
+    })();
+    if export_result.is_err() {
+        eprintln!("PERIDOT_EXPORT_LOGS share error");
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn peridot_backend_export_logs(content: *const c_char, len: i32) -> i32 {
+    if content.is_null() || len <= 0 || len > 2_000_000 {
+        return 0;
+    }
+
+    let activity_ptr =
+        PERIDOT_HAPTIC_ACTIVITY.load(std::sync::atomic::Ordering::Acquire) as *mut ANativeActivity;
+    if activity_ptr.is_null() {
+        return 0;
+    }
+
+    let internal = unsafe { (*activity_ptr).internal_data_path };
+    if internal.is_null() {
+        return 0;
+    }
+
+    let cache_dir = std::path::PathBuf::from(c_string(internal)).join("peridot_flutter/cache");
+    let _ = std::fs::create_dir_all(&cache_dir);
+    let file_path = cache_dir.join("peridot_logs.txt");
+
+    let bytes =
+        unsafe { std::slice::from_raw_parts(content as *const u8, len as usize) };
+    if std::fs::write(&file_path, bytes).is_err() {
+        return 0;
+    }
+
+    let path_string = file_path.to_string_lossy().into_owned();
+    PERIDOT_EXPORT_PATH.store(
+        Box::into_raw(Box::new(path_string)) as usize,
+        Ordering::Release,
+    );
+
+    let choreographer = unsafe { PERIDOT_EXPORT_CHOREOGRAPHER };
+    if choreographer == 0 {
+        PERIDOT_EXPORT_PATH.store(0, Ordering::Release);
+        return 0;
+    }
+    // SAFETY: choreographer was set from AChoreographer_getInstance in onCreate.
+    // on_export_frame matches the C calling convention required by the callback.
+    unsafe { schedule_export_callback(choreographer, on_export_frame); }
+    1
+}
+
+unsafe fn schedule_export_callback(
+    choreographer: i64,
+    _callback: extern "C" fn(i64, *mut c_void),
+) {
+    // choreographer is validated (non-zero). Call the choreographer API directly from this unsafe fn.
+    AChoreographer_postFrameCallback64(
+        choreographer as *mut AChoreographer,
+        on_export_frame,
+        std::ptr::null_mut(),
+    );
+}
+
+pub fn peridot_export_init() {
+    let choreographer = unsafe { AChoreographer_getInstance() as i64 };
+    unsafe { PERIDOT_EXPORT_CHOREOGRAPHER = choreographer };
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn peridot_host_photo_permission_state() -> i32 {
     PERIDOT_PHOTO_PERMISSION_STATE.load(std::sync::atomic::Ordering::Acquire)
@@ -3152,6 +3295,7 @@ pub unsafe extern "C" fn ANativeActivity_onCreate(
     peridot_prepare_launch_window(activity);
     peridot_photo_init(activity);
     peridot_haptic_init(activity);
+    peridot_export_init();
     log_str("ANativeActivity_onCreate");
 
     let callbacks = unsafe { (*activity).callbacks };

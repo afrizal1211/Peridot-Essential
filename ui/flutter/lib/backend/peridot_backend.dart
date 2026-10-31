@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:ffi' as ffi;
 import 'dart:typed_data';
 
@@ -44,6 +45,7 @@ final class PeridotBackendSnapshot {
     required this.cpuGovernor7,
     required this.gpuGovernor,
     required this.ufsScheduler,
+    required this.tcpCongestion,
     required this.touchHal,
     required this.displayHal,
     required this.touchState,
@@ -81,6 +83,7 @@ final class PeridotBackendSnapshot {
   final int cpuGovernor7;
   final int gpuGovernor;
   final int ufsScheduler;
+  final int tcpCongestion;
   final int touchHal;
   final int displayHal;
   final int touchState;
@@ -116,6 +119,7 @@ typedef _U32ToI64Native = ffi.Int64 Function(ffi.Uint32);
 typedef _U32ToI64Dart = int Function(int);
 typedef _SetI32Native = ffi.Int32 Function(ffi.Int32);
 typedef _SetI32Dart = int Function(int);
+typedef _ExportLogsDart = int Function(ffi.Pointer<ffi.Char>, int);
 typedef _I32ToI32Native = ffi.Int32 Function(ffi.Int32);
 typedef _I32ToI32Dart = int Function(int);
 typedef _SetTwoI32Native = ffi.Int32 Function(ffi.Int32, ffi.Int32);
@@ -171,6 +175,9 @@ final class PeridotBackend {
   late _SetI32Dart _setGpuGovernorNative;
   late _I32Dart _ufsSchedulerNative;
   late _SetI32Dart _setUfsSchedulerNative;
+  late _I32Dart _tcpCongestionNative;
+  late _SetI32Dart _setTcpCongestionNative;
+  late _ExportLogsDart _exportLogsNative;
   late _I32Dart _touchHalNative;
   late _I32Dart _displayHalNative;
   late _I32Dart _touchStateNative;
@@ -222,6 +229,7 @@ final class PeridotBackend {
     cpuGovernor7: -1,
     gpuGovernor: -1,
     ufsScheduler: -1,
+    tcpCongestion: -1,
     touchHal: 0,
     displayHal: 0,
     touchState: -1,
@@ -360,6 +368,15 @@ final class PeridotBackend {
       _setUfsSchedulerNative = lib.lookupFunction<_SetI32Native, _SetI32Dart>(
         'peridot_backend_set_ufs_scheduler',
       );
+      _tcpCongestionNative = lib.lookupFunction<_I32Native, _I32Dart>(
+        'peridot_backend_get_tcp_congestion',
+      );
+      _setTcpCongestionNative = lib.lookupFunction<_SetI32Native, _SetI32Dart>(
+        'peridot_backend_set_tcp_congestion',
+      );
+      _exportLogsNative = lib.lookupFunction<
+          ffi.Int32 Function(ffi.Pointer<ffi.Char>, ffi.Int32),
+          int Function(ffi.Pointer<ffi.Char>, int)>('peridot_backend_export_logs');
       _touchHalNative = lib.lookupFunction<_I32Native, _I32Dart>(
         'peridot_backend_get_touch_hal',
       );
@@ -508,6 +525,7 @@ final class PeridotBackend {
       cpuGovernor7: _cpuGovernorNative(7),
       gpuGovernor: _gpuGovernorNative(),
       ufsScheduler: _ufsSchedulerNative(),
+      tcpCongestion: _tcpCongestionNative(),
       touchHal: _touchHalNative(),
       displayHal: _displayHalNative(),
       touchState: _touchStateNative(),
@@ -622,6 +640,7 @@ final class PeridotBackend {
           _ => _latest.gpuGovernor,
         },
         ufsScheduler: _latest.ufsScheduler,
+        tcpCongestion: _latest.tcpCongestion,
         touchHal: _latest.touchHal,
         displayHal: _latest.displayHal,
         touchState: _latest.touchState,
@@ -644,6 +663,26 @@ final class PeridotBackend {
       _queue(_setCpuGovernorNative(policy, code), 'set cpu$policy governor');
   bool setGpuGovernor(int code) => _queue(_setGpuGovernorNative(code), 'set gpu governor');
   bool setUfsScheduler(int code) => _queue(_setUfsSchedulerNative(code), 'set ufs scheduler');
+  bool setTcpCongestion(int code) =>
+      _queue(_setTcpCongestionNative(code), 'set tcp congestion');
+
+  /// Export logs via Android Share Intent.
+  /// Writes content to cache, then triggers Share sheet.
+  /// Skipped: error handling for malloc failure (silently no-ops on OOM).
+  void exportLogs(String content) {
+    if (!_started) return;
+    final bytes = utf8.encode(content);
+    final ffi.Pointer<ffi.Void> buf = _mallocNative(bytes.length);
+    if (buf == ffi.nullptr) return;
+    try {
+      final ffi.Pointer<ffi.Uint8> out = buf.cast<ffi.Uint8>();
+      out.asTypedList(bytes.length).setAll(0, bytes);
+      _exportLogsNative(buf.cast<ffi.Char>(), bytes.length);
+    } finally {
+      _freeNative(buf);
+    }
+  }
+
   bool openSupportLink(int code) {
     if (!_started) return false;
     return _openSupportLinkNative(code) == 1;

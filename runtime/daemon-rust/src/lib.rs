@@ -1823,6 +1823,30 @@ fn set_io_scheduler(scheduler: &str) -> Result<(), String> {
     Ok(())
 }
 
+fn tcp_congestion() -> String {
+    read_trimmed("/proc/sys/net/ipv4/tcp_congestion_control")
+        .unwrap_or_else(|_| "cubic".into())
+}
+
+fn set_tcp_congestion(name: &str) -> Result<(), String> {
+    const SAFE: &[&str] = &["cubic", "reno", "bbr", "htcp", "westwood", "scalable"];
+    if !SAFE.contains(&name) {
+        return Err("invalid tcp congestion control request".into());
+    }
+    service_control::write(
+        Path::new("/proc/sys/net/ipv4/tcp_congestion_control"),
+        format!("{name}\n"),
+    )
+    .map_err(|e| format!("tcp_congestion write: {e}"))?;
+    let actual = tcp_congestion();
+    if actual != name {
+        return Err(format!(
+            "tcp_congestion verify: expected {name}, got {actual}"
+        ));
+    }
+    Ok(())
+}
+
 #[allow(dead_code)]
 fn write_if_present(path: &str, value: &str) -> Result<bool, String> {
     let p = Path::new(path);
@@ -2519,6 +2543,7 @@ struct PersistedState {
     cpu7: String,
     gpu: String,
     io: String,
+    tcp: String,
     brightness_prev: i32,
     zram_size_mb: i32,
     zram_algorithm: String,
@@ -2566,6 +2591,7 @@ impl Default for PersistedState {
             cpu7: String::new(),
             gpu: String::new(),
             io: String::new(),
+            tcp: String::new(),
             brightness_prev: -1,
             zram_size_mb: 8192,
             zram_algorithm: "lz4".to_string(),
@@ -2884,6 +2910,7 @@ fn parse_persisted_state(raw: &str) -> PersistedState {
             "cpu7" => state.cpu7 = value.to_string(),
             "gpu" => state.gpu = value.to_string(),
             "io" => state.io = value.to_string(),
+            "tcp" => state.tcp = value.to_string(),
             "brightness_prev" => {
                 if let Some(v) = int_value() {
                     state.brightness_prev = v;
@@ -3047,6 +3074,7 @@ fn save_persisted_state(state: &PersistedState) -> Result<(), String> {
     out.push_str(&format!("cpu7={}\n", state.cpu7));
     out.push_str(&format!("gpu={}\n", state.gpu));
     out.push_str(&format!("io={}\n", state.io));
+    out.push_str(&format!("tcp={}\n", state.tcp));
     out.push_str(&format!("brightness_prev={}\n", state.brightness_prev));
     out.push_str(&format!("zram_size_mb={}\n", state.zram_size_mb));
     out.push_str(&format!("zram_algorithm={}\n", state.zram_algorithm));
@@ -3483,6 +3511,11 @@ fn record_successful_command(cmd: &str) -> Result<(), String> {
     if let Some(arg) = cmd.strip_prefix("SET io.scheduler ") {
         let value = arg.trim().to_string();
         return mutate_persisted_state(|state| state.io = value);
+    }
+
+    if let Some(arg) = cmd.strip_prefix("SET tcp.congestion ") {
+        let value = arg.trim().to_string();
+        return mutate_persisted_state(|state| state.tcp = value);
     }
 
     Ok(())
@@ -4197,6 +4230,10 @@ fn reassert_persisted_governors() {
 
     if !state.io.is_empty() && io_scheduler() != state.io {
         let _ = set_io_scheduler(&state.io);
+    }
+
+    if !state.tcp.is_empty() && tcp_congestion() != state.tcp {
+        let _ = set_tcp_congestion(&state.tcp);
     }
 
     let desired_zram_alg = if !state.zram_algorithm.is_empty() {
@@ -5317,6 +5354,7 @@ fn snapshot() -> String {
         format!("gov7={}", sanitize(policy_governor(7))),
         format!("gpu_gov={}", sanitize(gpu_governor())),
         format!("io={}", sanitize(io_scheduler())),
+        format!("tcp_congestion={}", sanitize(tcp_congestion())),
         format!("touch_hal={touch_hal}"),
         format!("display_hal={display_hal}"),
         format!(
@@ -5956,6 +5994,8 @@ fn handle_enabled_command(line: &str) -> String {
         set_gpu_governor(arg.trim())
     } else if let Some(arg) = cmd.strip_prefix("SET io.scheduler ") {
         set_io_scheduler(arg.trim())
+    } else if let Some(arg) = cmd.strip_prefix("SET tcp.congestion ") {
+        set_tcp_congestion(arg.trim())
     } else if let Some(rest) = cmd.strip_prefix("SET display.res ") {
         let mut parts = rest.split_whitespace();
         let width = parts

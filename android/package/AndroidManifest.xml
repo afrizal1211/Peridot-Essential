@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="io.github.davvv98.peridotessential"
-    android:versionCode="11810"
-    android:versionName="1.18.10">
+    android:versionCode="11811"
+    android:versionName="1.18.11">
 
     <uses-sdk
         android:minSdkVersion="31"
