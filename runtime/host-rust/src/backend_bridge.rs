@@ -1015,7 +1015,6 @@ fn refresh(cache: &Cache) -> Result<(), String> {
 fn cpu_governor_name(code: i32) -> Option<&'static str> {
     match code {
         0 => Some("walt"),
-        5 => Some("migov"),
         1 => Some("conservative"),
         2 => Some("powersave"),
         3 => Some("performance"),

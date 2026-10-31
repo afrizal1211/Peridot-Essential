@@ -9855,7 +9855,6 @@ class _AdvancedConfigurationScreenState
   Widget build(BuildContext context) {
     const List<_ChoiceOption> cpuGovernors = <_ChoiceOption>[
       _ChoiceOption(0, 'walt'),
-      _ChoiceOption(5, 'migov'),
       _ChoiceOption(1, 'conservative'),
       _ChoiceOption(2, 'powersave'),
       _ChoiceOption(3, 'performance'),
