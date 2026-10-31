@@ -1,5 +1,11 @@
 # Peridot Essential changelog
 
+## 1.18.10
+
+- GPU beast profile now uses daemon-reported hardware ceiling instead of hardcoded 1150 MHz
+- Fixes false-positive "clock below target" on SM8635 devices where max OPP is 1100 MHz
+- "1.15 GHz" hero card labels now adapt to the device's actual verified maximum frequency
+
 ## 1.18.9
 
 Bugfix + observability release. Protocol stays `peridot.5`.
