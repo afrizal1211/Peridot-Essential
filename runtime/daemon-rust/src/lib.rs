@@ -817,13 +817,12 @@ fn maintain_bypass_policy() {
         .lock()
         .expect("bypass transaction poisoned");
     let state = persisted_state().lock().ok().map(|state| state.clone());
-    if let Some(state) = state.filter(|state| state.bypass_charging == 1) {
-        if let Err(error) = reconcile_bypass(true, state.bypass_threshold, false) {
-            if BYPASS_POLICY_ERROR.swap(1, Ordering::AcqRel) == 0 {
-                eprintln!("PERIDOT_BYPASS_POLICY_FAIL {error}");
-                log_daemon(&format!("BYPASS_POLICY_FAIL {error}"));
-            }
-        }
+    if let Some(state) = state.filter(|state| state.bypass_charging == 1)
+        && let Err(error) = reconcile_bypass(true, state.bypass_threshold, false)
+        && BYPASS_POLICY_ERROR.swap(1, Ordering::AcqRel) == 0
+    {
+        eprintln!("PERIDOT_BYPASS_POLICY_FAIL {error}");
+        log_daemon(&format!("BYPASS_POLICY_FAIL {error}"));
     }
 }
 
@@ -869,7 +868,7 @@ fn configure_bypass(enabled: Option<bool>, threshold: Option<i32>) -> Result<(),
 
 fn valid_charging_profile(profile: i32) -> bool {
     // fastcharge_enable domain: 0 none, 1 fast, 2 super fast.
-    matches!(profile, 0 | 1 | 2)
+    matches!(profile, 0..=2)
 }
 
 fn normalize_charging_profile(profile: i32) -> i32 {
@@ -943,6 +942,49 @@ fn normalize_reported_power_w(raw: i64) -> i32 {
     } else {
         (raw / 1_000_000) as i32
     }
+}
+
+/// Read-only GPU thermal zone temperature in tenths of °C, or -1.
+/// The zone name varies per kernel; scan once and cache the first zone whose
+/// `type` mentions the GPU. Skipped: live re-scan of hotplugged zones —
+/// thermal zone layout is fixed at boot.
+fn thermal_gpu_zone() -> Option<&'static str> {
+    static GPU_ZONE: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+    GPU_ZONE
+        .get_or_init(|| {
+            let dir = Path::new("/sys/class/thermal");
+            let mut zones: Vec<_> = fs::read_dir(dir)
+                .ok()?
+                .filter_map(|entry| entry.ok())
+                .map(|entry| entry.path())
+                .filter(|path| {
+                    path.file_name()
+                        .and_then(|name| name.to_str())
+                        .is_some_and(|name| name.starts_with("thermal_zone"))
+                })
+                .collect();
+            zones.sort();
+            zones
+                .into_iter()
+                .find(|zone| {
+                    read_trimmed(zone.join("type"))
+                        .map(|t| t.to_ascii_lowercase())
+                        .is_ok_and(|t| t.contains("gpu"))
+                })
+                .map(|zone| zone.to_string_lossy().into_owned())
+        })
+        .as_deref()
+}
+
+fn thermal_zone_tenths(path: &str) -> i32 {
+    read_trimmed(path)
+        .ok()
+        .and_then(|value| value.parse::<i32>().ok())
+        .unwrap_or(-1)
+}
+
+fn thermal_gpu_zone_tenths() -> i32 {
+    thermal_gpu_zone().map(thermal_zone_tenths).unwrap_or(-1)
 }
 
 fn charging_adapter_watts() -> i32 {
@@ -1824,8 +1866,7 @@ fn set_io_scheduler(scheduler: &str) -> Result<(), String> {
 }
 
 fn tcp_congestion() -> String {
-    read_trimmed("/proc/sys/net/ipv4/tcp_congestion_control")
-        .unwrap_or_else(|_| "cubic".into())
+    read_trimmed("/proc/sys/net/ipv4/tcp_congestion_control").unwrap_or_else(|_| "cubic".into())
 }
 
 fn set_tcp_congestion(name: &str) -> Result<(), String> {
@@ -2732,10 +2773,9 @@ fn get_daemon_logs() -> String {
         .unwrap_or_default()
 }
 
-/// Patches eprintln! calls for key failure paths so they also surface in the
-/// in-app log. Call log_daemon() from failure branches.
-/// Skipped: exhaustive patching of every eprintln! (add per-feature as needed).
-
+// Log guidance: patch eprintln! calls for key failure paths so they also
+// surface in the in-app log. Call log_daemon() from failure branches.
+// Skipped: exhaustive patching of every eprintln! (add per-feature as needed).
 fn state_file() -> PathBuf {
     state_dir().join("state.conf")
 }
@@ -2748,11 +2788,12 @@ fn load_persisted_state() -> PersistedState {
 }
 
 fn parse_persisted_state(raw: &str) -> PersistedState {
-    let mut state = PersistedState::default();
-
     // State written before GPU/CPU profile isolation did not carry this key.
-    // Mark an existing file as legacy until the parser finds the new marker.
-    state.gpu_profile_cpu_isolated = 0;
+    // Start from legacy (0) until the parser finds the new marker (1).
+    let mut state = PersistedState {
+        gpu_profile_cpu_isolated: 0,
+        ..PersistedState::default()
+    };
 
     for line in raw.lines() {
         let line = line.trim();
@@ -3009,16 +3050,16 @@ fn parse_persisted_state(raw: &str) -> PersistedState {
     if !matches!(state.display_temp, -1 | 1..=3) {
         state.display_temp = -1;
     }
-    if !matches!(state.sunlight, -1 | 0 | 1) {
+    if !matches!(state.sunlight, -1..=1) {
         state.sunlight = -1;
     }
-    if !matches!(state.silky, -1 | 0 | 1) {
+    if !matches!(state.silky, -1..=1) {
         state.silky = -1;
     }
-    if !matches!(state.video, -1 | 0 | 1) {
+    if !matches!(state.video, -1..=1) {
         state.video = -1;
     }
-    if !matches!(state.dolby, -1 | 0 | 1) {
+    if !matches!(state.dolby, -1..=1) {
         state.dolby = -1;
     }
 
@@ -3933,11 +3974,11 @@ fn restore_persisted_state() {
         .map(|s| s.clone())
         .unwrap_or_default();
 
-    if state.sconfig_override >= 0 {
-        if let Err(error) = sconfig::set(state.sconfig_override) {
-            eprintln!("PERIDOT_SCONFIG_RESTORE_FAIL {error}");
-            log_daemon(&format!("SCONFIG_RESTORE_FAIL {error}"));
-        }
+    if state.sconfig_override >= 0
+        && let Err(error) = sconfig::set(state.sconfig_override)
+    {
+        eprintln!("PERIDOT_SCONFIG_RESTORE_FAIL {error}");
+        log_daemon(&format!("SCONFIG_RESTORE_FAIL {error}"));
     }
 
     let legacy_state = state.gpu_profile_cpu_isolated != 1;
@@ -3961,8 +4002,9 @@ fn restore_persisted_state() {
         && CHARGING_BOOT_RESTORE_DONE
             .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire)
             .is_ok()
+        && let Err(error) = apply_charging_profile(state.charging)
     {
-        let _ = apply_charging_profile(state.charging);
+        log_daemon(&format!("CHARGING_RESTORE_FAIL {error}"));
     }
 
     if state.bypass_charging == 1 {
@@ -3970,14 +4012,14 @@ fn restore_persisted_state() {
         wake_bypass_monitor();
     }
 
-    if matches!(state.touch, 0 | 1) {
-        if let Ok(_guard) = touch_profile_apply_lock().lock() {
-            let owned = persisted_state()
-                .lock()
-                .is_ok_and(|s| s.touch == state.touch);
-            if owned {
-                let _ = apply_touch_profile_locked(state.touch);
-            }
+    if matches!(state.touch, 0 | 1)
+        && let Ok(_guard) = touch_profile_apply_lock().lock()
+    {
+        let owned = persisted_state()
+            .lock()
+            .is_ok_and(|s| s.touch == state.touch);
+        if owned {
+            let _ = apply_touch_profile_locked(state.touch);
         }
     }
 
@@ -4042,7 +4084,9 @@ fn restore_persisted_state() {
         // GPU profiles are isolated from CPU controls. Preserve the exact
         // persisted selection while restoring the requested Mali state.
         let persisted = state.clone();
-        let _ = apply_performance_profile(state.perf);
+        if let Err(error) = apply_performance_profile(state.perf) {
+            log_daemon(&format!("GPU_PROFILE_RESTORE_FAIL {error}"));
+        }
         // Restore only profile-owned preferences. Replacing the whole old
         // snapshot here could undo a concurrent touch/colour OEM selection.
         let _ = mutate_persisted_state(|current| {
@@ -4112,8 +4156,10 @@ fn restore_persisted_state() {
 
     if cpu_mode_ready {
         for policy in [0, 3, 7] {
-            if let Some((min, max)) = persisted_cpu_range(&state, policy) {
-                let _ = apply_cluster_freq_controls(policy, min, max);
+            if let Some((min, max)) = persisted_cpu_range(&state, policy)
+                && let Err(error) = apply_cluster_freq_controls(policy, min, max)
+            {
+                log_daemon(&format!("CPU_RESTORE_FAIL policy{policy} {error}"));
             }
         }
     } else {
@@ -4152,6 +4198,18 @@ fn restore_persisted_state() {
             false,
         );
     }
+
+    log_daemon(&format!(
+        "BOOT_RESTORE perf={} gpu_uncap={} charging={} touch={} sconfig={} bypass={} zram={} cpu_manual={}",
+        state.perf,
+        state.gpu_uncap,
+        state.charging,
+        state.touch,
+        state.sconfig_override,
+        state.bypass_charging,
+        state.zram_size_mb,
+        state.cpu_manual,
+    ));
 }
 
 fn late_boot_restore_loop() {
@@ -4479,10 +4537,11 @@ pub fn start_background_services() {
     std::thread::spawn(charging_power_supply_event_loop);
     std::thread::spawn(|| {
         let _gate = service_control::GATE.read().expect("service gate poisoned");
-        if service_control::release_pending() && !service_control::enabled() {
-            if restore_released_controls().is_ok() {
-                let _ = service_control::set_release_pending(false);
-            }
+        if service_control::release_pending()
+            && !service_control::enabled()
+            && restore_released_controls().is_ok()
+        {
+            let _ = service_control::set_release_pending(false);
         }
         restore_persisted_state();
     });
@@ -4816,10 +4875,10 @@ fn gpu_read_raw(path: &str) -> Option<String> {
 }
 
 fn gpu_get_loading() -> i32 {
-    if let Some(raw) = peridot::root_read("gpu_busy_percentage") {
-        if let Ok(value) = raw.parse::<i32>() {
-            return value.clamp(0, 100);
-        }
+    if let Some(raw) = peridot::root_read("gpu_busy_percentage")
+        && let Ok(value) = raw.parse::<i32>()
+    {
+        return value.clamp(0, 100);
     }
     let raw = peridot::root_read("gpubusy").unwrap_or_default();
     let v: Vec<i64> = raw
@@ -5048,6 +5107,7 @@ fn snapshot_persistence_fields() -> Vec<String> {
     let zram_disk_mb = zram_get_disksize_mb();
     let zram_swappiness = zram_get_swappiness();
     let zram_alg = zram_get_algorithm();
+    let (gpu_table_min, gpu_table_max) = peridot::table_bounds();
 
     vec![
         "phase=16".to_string(),
@@ -5133,6 +5193,8 @@ fn snapshot_persistence_fields() -> Vec<String> {
         format!("gpu_requested_max={}", state.gpu_max_freq_mhz),
         format!("gpu_min_freq={}", gpu_get_min_freq_mhz()),
         format!("gpu_max_freq={}", gpu_get_max_freq_mhz()),
+        format!("gpu_table_min={gpu_table_min}"),
+        format!("gpu_table_max={gpu_table_max}"),
         format!("gpu_gov={}", gpu_get_governor()),
         format!("gpu_ged_boost={}", gpu_get_ged_boost()),
         format!("gpu_thermal_state={}", gpu_get_thermal_state()),
@@ -5268,9 +5330,7 @@ fn snapshot() -> String {
             ((voltage as i128 * (current as i128).abs()) / 1_000_000_000) as i64
         })
         .unwrap_or(-1);
-    let touch_hal = if hardware_contract::touch_backend()
-        != hardware_contract::TouchBackend::None
-    {
+    let touch_hal = if hardware_contract::touch_backend() != hardware_contract::TouchBackend::None {
         1
     } else {
         0
@@ -5304,6 +5364,7 @@ fn snapshot() -> String {
         ),
         format!("charging_sic={charging_sic}"),
         format!("charging_live_mw={charging_live_mw}"),
+        format!("gpu_zone_temp={}", thermal_gpu_zone_tenths()),
         format!(
             "bypass_charging_supported={}",
             i32::from(bypass_charging_path().is_some())
@@ -5535,29 +5596,26 @@ fn restore_released_controls() -> Result<(), String> {
     // Open the range before restoring either end. A prior exact lock can
     // reject the original minimum when it lies above the current maximum.
     for (path, value) in service_control::originals() {
-        if path.ends_with("/scaling_min_freq")
-            || (path.contains("/devfreq/") && path.ends_with("/min_freq"))
+        if (path.ends_with("/scaling_min_freq")
+            || (path.contains("/devfreq/") && path.ends_with("/min_freq")))
+            && let Some(value) = value.as_str()
         {
-            if let Some(value) = value.as_str() {
-                let max_path = if path.ends_with("/scaling_min_freq") {
-                    path.replace("/scaling_min_freq", "/scaling_max_freq")
-                } else {
-                    path.replace("/min_freq", "/max_freq")
-                };
-                if let (Ok(minimum), Ok(maximum)) = (
-                    value.trim().parse::<i64>(),
-                    read_trimmed(&max_path)
-                        .and_then(|v| v.parse::<i64>().map_err(|e| e.to_string())),
-                ) {
-                    if minimum > maximum {
-                        run(
-                            &max_path,
-                            fs::write(&max_path, minimum.to_string()).map_err(|e| e.to_string()),
-                        );
-                    }
-                }
-                run(&path, fs::write(&path, value).map_err(|e| e.to_string()));
+            let max_path = if path.ends_with("/scaling_min_freq") {
+                path.replace("/scaling_min_freq", "/scaling_max_freq")
+            } else {
+                path.replace("/min_freq", "/max_freq")
+            };
+            if let (Ok(minimum), Ok(maximum)) = (
+                value.trim().parse::<i64>(),
+                read_trimmed(&max_path).and_then(|v| v.parse::<i64>().map_err(|e| e.to_string())),
+            ) && minimum > maximum
+            {
+                run(
+                    &max_path,
+                    fs::write(&max_path, minimum.to_string()).map_err(|e| e.to_string()),
+                );
             }
+            run(&path, fs::write(&path, value).map_err(|e| e.to_string()));
         }
     }
     let mut original_nodes = service_control::originals();
@@ -5766,10 +5824,10 @@ pub fn handle_command(line: &str) -> String {
         if let Err(error) = capture_feature_original(cmd) {
             return format!("ERR {error}");
         }
-        if !service_control::configured() {
-            if let Err(error) = service_control::set_intent(true, true) {
-                return format!("ERR {error}");
-            }
+        if !service_control::configured()
+            && let Err(error) = service_control::set_intent(true, true)
+        {
+            return format!("ERR {error}");
         }
     }
     handle_enabled_command(line)
@@ -6270,9 +6328,9 @@ mod tests {
     #[cfg(not(target_os = "android"))]
     use super::run_process_with_timeout;
     use super::{
-        AppUidPolicy, MI_THERMAL_NO_LIMITS_MODE, PersistedState,
-        classify_touch_panel_version, client_uid_allowed, cpu_frequency_drift_status,
-        find_touch_thp_config_offset, gaming_dynamic_target_opp, mi_thermal_cpu_limit_request,
+        AppUidPolicy, MI_THERMAL_NO_LIMITS_MODE, PersistedState, classify_touch_panel_version,
+        client_uid_allowed, cpu_frequency_drift_status, find_touch_thp_config_offset,
+        gaming_dynamic_target_opp, mi_thermal_cpu_limit_request,
         migrate_legacy_gpu_profile_cpu_state, mtk_powerhal_cpu_range_request,
         normalize_charging_profile, normalize_mi_thermal_config_mode, normalize_reported_power_w,
         package_app_id_from_packages_list, parse_cpu_frequency_table, parse_cpu_time_in_state,

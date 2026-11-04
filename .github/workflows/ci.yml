@@ -40,6 +40,18 @@ jobs:
         with:
           targets: aarch64-linux-android
 
+      - name: Format check
+        run: cargo fmt --check
+
+      # dead_code stays non-fatal: inherited adaptation paths (touch,
+      # charging, legacy vendor code) are kept until their device nodes are
+      # validated. Every other clippy warning is treated as an error.
+      - name: Clippy
+        run: >
+          cargo clippy --locked
+          -p peridot-essential-daemon -p peridot-essential-host
+          --all-targets -- -D warnings -A dead_code
+
       - name: Daemon host tests
         run: cargo test --locked -p peridot-essential-daemon
 

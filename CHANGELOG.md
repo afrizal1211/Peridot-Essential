@@ -1,5 +1,25 @@
 # Peridot Essential changelog
 
+## 1.18.11
+
+Feature + hardening release. Protocol stays `peridot.5`.
+
+- Boot restore now records failures in the in-app log
+  (`CHARGING_RESTORE_FAIL`, `GPU_PROFILE_RESTORE_FAIL`, `CPU_RESTORE_FAIL
+  policy{N}`) plus a `BOOT_RESTORE perf=...` summary line, so silent restore
+  misses are visible without adb.
+- CI runs `cargo fmt --check` and a clippy gate (`-D warnings -A dead_code`)
+  on both daemon and host before tests.
+- Per-app profiles gain an optional Xiaomi Sconfig control (0/6/18/50/56/68),
+  gated on a `"sconfig"` capability flag; the daemon now accepts the vendor
+  performance variants 56/68 that the bridge and global card already exposed.
+- GPU screen gains a live frequency sparkline card fed by KGSL telemetry.
+- Hardware details card shows the live OPP table bounds and the GPU thermal
+  zone temperature (extended keys 122/123/124) instead of hardcoded numbers.
+- Regression test pins profile application to a lowered hardware ceiling
+  (1100 MHz table), and the ghost `[0,2,5,7]` policy list is fully retired to
+  `[0,3,7]`.
+
 ## 1.18.10
 
 - GPU beast profile now uses daemon-reported hardware ceiling instead of hardcoded 1150 MHz

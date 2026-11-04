@@ -189,9 +189,8 @@ fn inspect_storage(root: &Path) -> Result<Value, String> {
     if !name.trim().contains("ufshc") {
         return Err("unexpected devfreq device".into());
     }
-    let frequencies = table(
-        &fs::read_to_string(root.join("available_frequencies")).map_err(|e| e.to_string())?,
-    )?;
+    let frequencies =
+        table(&fs::read_to_string(root.join("available_frequencies")).map_err(|e| e.to_string())?)?;
     let governor = fs::read_to_string(root.join("governor")).map_err(|e| e.to_string())?;
     let min = number(root, "min_freq")?;
     let max = number(root, "max_freq")?;
@@ -200,8 +199,7 @@ fn inspect_storage(root: &Path) -> Result<Value, String> {
         "min_hz": min, "max_hz": max, "governor": governor.trim()}))
 }
 fn inspect_storage_soft(root: &Path) -> Value {
-    inspect_storage(root)
-        .unwrap_or_else(|e| json!({"supported": false, "reason": e}))
+    inspect_storage(root).unwrap_or_else(|e| json!({"supported": false, "reason": e}))
 }
 fn apply_max(root: &Path) -> Result<u64, String> {
     let status = inspect_storage(root)?;
@@ -384,10 +382,10 @@ pub(super) fn start() {
             }
         }
     }
-    if trials().0.lock().unwrap().error.is_none() {
-        if let Err(e) = restore_all() {
-            trials().0.lock().unwrap().error = Some(e);
-        }
+    if trials().0.lock().unwrap().error.is_none()
+        && let Err(e) = restore_all()
+    {
+        trials().0.lock().unwrap().error = Some(e);
     }
     std::thread::spawn(|| {
         let (lock, wake) = trials();
@@ -402,10 +400,8 @@ pub(super) fn start() {
                 .filter(|(_, deadline)| **deadline <= Instant::now())
                 .map(|(rail, _)| rail.clone())
                 .collect::<Vec<_>>();
-            if expired_storage {
-                if let Err(e) = restore_storage(&mut state) {
-                    state.error = Some(e);
-                }
+            if expired_storage && let Err(e) = restore_storage(&mut state) {
+                state.error = Some(e);
             }
             for rail in expired_rails {
                 if let Err(e) = restore_rail(&mut state, &rail) {
@@ -602,14 +598,15 @@ pub(super) fn command(cmd: &str) -> Result<Value, String> {
                     }
                     return Err(e);
                 }
-                state.storage_deadline =
-                    Some(Instant::now() + Duration::from_secs(TRIAL_SECONDS));
+                state.storage_deadline = Some(Instant::now() + Duration::from_secs(TRIAL_SECONDS));
             }
             Kind::Memory => {
                 let rail = rail_arg.ok_or("expected a DCVS rail for the memory trial")?;
                 let root = rail_root(rail)?;
                 if !rail_ready(&root) {
-                    return Err("this kernel does not expose DCVS boost control for the rail".into());
+                    return Err(
+                        "this kernel does not expose DCVS boost control for the rail".into(),
+                    );
                 }
                 if state.rails.contains_key(rail) {
                     return Err("trial already running".into());
@@ -700,10 +697,8 @@ mod tests {
     use super::*;
 
     fn storage_fixture(tag: &str, name: &str) -> PathBuf {
-        let root = std::env::temp_dir().join(format!(
-            "peridot-clock-test-{}-{tag}",
-            std::process::id()
-        ));
+        let root =
+            std::env::temp_dir().join(format!("peridot-clock-test-{}-{tag}", std::process::id()));
         fs::create_dir_all(&root).unwrap();
         for (file, value) in [
             ("name", name),
@@ -719,10 +714,8 @@ mod tests {
     }
 
     fn rail_fixture(tag: &str, boost: &str, max: &str) -> PathBuf {
-        let root = std::env::temp_dir().join(format!(
-            "peridot-dcvs-test-{}-{tag}",
-            std::process::id()
-        ));
+        let root =
+            std::env::temp_dir().join(format!("peridot-dcvs-test-{}-{tag}", std::process::id()));
         fs::create_dir_all(&root).unwrap();
         for (file, value) in [
             ("boost_freq", boost),

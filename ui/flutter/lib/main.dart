@@ -3118,10 +3118,17 @@ class _HomePulseHero extends StatelessWidget {
           3 => Icons.local_fire_department_rounded,
           _ => Icons.balance_rounded,
         };
+        final int gpuTableMin = backend.extendedValue(122);
+        final int gpuTableMax = backend.extendedValue(123);
+        final String gpuRangeLabel = gpuTableMin > 0 && gpuTableMax > 0
+            ? '$gpuTableMin–$gpuTableMax MHz'
+            : 'the live OPP table';
         final String profileDescription = switch (activePerf) {
           2 => 'Efficiency-first clocks and reduced power demand',
-          1 => 'Unrestricted 264–1150 MHz GPU scaling with msm-adreno-tz',
-          3 => 'GPU requests a 1150 MHz frequency floor and ceiling',
+          1 => 'Unrestricted $gpuRangeLabel GPU scaling with msm-adreno-tz',
+          3 => gpuTableMax > 0
+              ? 'GPU requests a $gpuTableMax MHz frequency floor and ceiling'
+              : 'GPU requests the top hardware frequency as floor and ceiling',
           _ => 'OEM-balanced performance and efficiency for everyday use',
         };
         final int onlineCores = _peridotOnlineCoreCount(snapshot);
@@ -4381,7 +4388,7 @@ class HubsScreen extends StatelessWidget {
             : 0;
         final int rawMinFreq = backend.extendedValue(47) >= 0
             ? backend.extendedValue(47)
-            : 260;
+            : 264;
         final int rawMaxFreq = backend.extendedValue(48) >= 0
             ? backend.extendedValue(48)
             : 1150;
@@ -4390,11 +4397,14 @@ class HubsScreen extends StatelessWidget {
             ? snapshot.performanceProfile
             : 0;
         final bool isBeast =
-            (rawUncap == 1 && rawMinFreq == 1150 && rawMaxFreq == 1150) ||
+            (rawUncap == 1 &&
+                    rawMaxFreq > 0 &&
+                    rawMinFreq > 0 &&
+                    rawMinFreq == rawMaxFreq) ||
             activePerf == 3;
         final String gpuLabel = liveGpuFreq >= 260
             ? '$liveGpuFreq MHz'
-            : (isBeast ? '1150 MHz' : '$rawMaxFreq MHz');
+            : (rawMaxFreq > 0 ? '$rawMaxFreq MHz' : '—');
         final String displayMode = switch (snapshot.displayColor) {
           0 => 'Original PRO',
           1 => 'Vivid',
@@ -12357,6 +12367,12 @@ class _AdrenoGpuScreenState extends State<AdrenoGpuScreen> {
         final int rawMaxFreq = backend.extendedValue(48) >= 0
             ? backend.extendedValue(48)
             : 1150;
+        final int tableMinFreq = backend.extendedValue(122) >= 0
+            ? backend.extendedValue(122)
+            : (rawMinFreq > 0 ? rawMinFreq : 264);
+        final int tableMaxFreq = backend.extendedValue(123) >= 0
+            ? backend.extendedValue(123)
+            : (rawMaxFreq > 0 ? rawMaxFreq : 1150);
         final int rawGovCode = backend.extendedValue(49) >= 0
             ? backend.extendedValue(49)
             : 0;
@@ -12383,21 +12399,22 @@ class _AdrenoGpuScreenState extends State<AdrenoGpuScreen> {
                 ? snapshot.performanceProfile
                 : 0);
         final int requestedMaxFreq = switch (activePerf) {
-          3 => rawMaxFreq > 0 ? rawMaxFreq : 1150,
-          1 => 1150,
-          2 => 510,
+          1 || 3 => tableMaxFreq,
+          2 => tableMaxFreq < 510 ? tableMaxFreq : 510,
           _ => rawMaxFreq,
         };
-        final String beastTargetLabel =
-            '${(requestedMaxFreq / 1000).toStringAsFixed(2)} GHz';
+        final String beastTargetLabel = requestedMaxFreq > 0
+            ? '${(requestedMaxFreq / 1000).toStringAsFixed(2)} GHz'
+            : '—';
         final bool hasHardwareReadback = _optimisticProfile == null;
         final bool isThrottledByOs =
             hasHardwareReadback &&
-            ((activePerf == 3 &&
-                    (liveCurFreq > 0 && liveCurFreq < requestedMaxFreq) ||
-                rawMaxFreq < requestedMaxFreq) ||
-                ((activePerf == 1 || activePerf == 2) &&
-                    rawMaxFreq < requestedMaxFreq));
+            (((activePerf == 1 || activePerf == 2 || activePerf == 3) &&
+                    rawMaxFreq > 0 &&
+                    rawMaxFreq < requestedMaxFreq) ||
+                (activePerf == 3 &&
+                    liveCurFreq > 0 &&
+                    liveCurFreq < requestedMaxFreq));
         final bool isBeast =
             activePerf == 3 ||
             isUncapped ||
@@ -12425,12 +12442,12 @@ class _AdrenoGpuScreenState extends State<AdrenoGpuScreen> {
                   : 'Requested $beastTargetLabel · effective limit differs')
             : (isGaming
                   ? (liveCurFreq > 0
-                        ? 'Live: $liveCurFreq MHz · Scaling freely to 1.15 GHz'
-                        : 'Full-range scaling · 264–1150 MHz')
+                        ? 'Live: $liveCurFreq MHz · Scaling freely to $tableMaxFreq MHz'
+                        : 'Full-range scaling · $tableMinFreq–$tableMaxFreq MHz')
                   : (isBattery
                         ? (liveCurFreq > 0
-                              ? 'Live: $liveCurFreq MHz · Efficiency cap at 510 MHz'
-                              : 'Efficiency range · 264–510 MHz')
+                              ? 'Live: $liveCurFreq MHz · Efficiency cap at $requestedMaxFreq MHz'
+                              : 'Efficiency range · $tableMinFreq–$requestedMaxFreq MHz')
                         : (liveCurFreq > 0
                               ? 'Live: $liveCurFreq MHz · OEM-managed behavior'
                               : 'Vendor-managed clocks and power policy')));
@@ -12486,6 +12503,8 @@ class _AdrenoGpuScreenState extends State<AdrenoGpuScreen> {
                   minFreq: activeMinFreq,
                   maxFreq: activeMaxFreq,
                   requestedMaxFreq: requestedMaxFreq,
+                  tableMinFreq: tableMinFreq,
+                  tableMaxFreq: tableMaxFreq,
                   isUncapped: isUncapped,
                   isThrottledByOs: isThrottledByOs,
                   profileVerified: profileVerified,
@@ -12511,8 +12530,18 @@ class _AdrenoGpuScreenState extends State<AdrenoGpuScreen> {
                   activeProfile: activePerf,
                   minFreq: activeMinFreq,
                   maxFreq: activeMaxFreq,
+                  tableMinFreq: tableMinFreq,
+                  tableMaxFreq: tableMaxFreq,
                   isUncapped: isUncapped,
                   onSelect: _applyPreset,
+                ),
+                const SizedBox(height: 12),
+
+                // 2b. LIVE FREQUENCY TELEMETRY
+                _GpuTelemetryCard(
+                  liveCurFreq: liveCurFreq.toDouble(),
+                  tableMinFreq: tableMinFreq,
+                  tableMaxFreq: tableMaxFreq,
                 ),
                 const SizedBox(height: 12),
 
@@ -12534,6 +12563,11 @@ class _AdrenoGpuScreenState extends State<AdrenoGpuScreen> {
                   isDark: isDark,
                   colors: colors,
                   thermalState: thermalState,
+                  tableMinFreq: tableMinFreq,
+                  tableMaxFreq: tableMaxFreq,
+                  gpuZoneTempC: backend.extendedValue(124) >= 0
+                      ? backend.extendedValue(124) / 10.0
+                      : null,
                 ),
               ],
             ),
@@ -12552,8 +12586,7 @@ class _AdrenoGpuScreenState extends State<AdrenoGpuScreen> {
       },
     );
   }
-
-  // 1. HERO GPU DASHBOARD WIDGET
+// 1. HERO GPU DASHBOARD WIDGET
   Widget _buildHeroDashboard({
     required bool isDark,
     required ColorScheme colors,
@@ -12563,6 +12596,8 @@ class _AdrenoGpuScreenState extends State<AdrenoGpuScreen> {
     required int minFreq,
     required int maxFreq,
     required int requestedMaxFreq,
+    required int tableMinFreq,
+    required int tableMaxFreq,
     required bool isUncapped,
     required bool isThrottledByOs,
     required bool profileVerified,
@@ -12585,8 +12620,9 @@ class _AdrenoGpuScreenState extends State<AdrenoGpuScreen> {
 
     final String activeDisplayClock = liveCurFreq > 0 ? '$liveCurFreq' : '—';
 
-    final String beastTargetLabel =
-        '${(requestedMaxFreq / 1000).toStringAsFixed(2)} GHz';
+    final String beastTargetLabel = requestedMaxFreq > 0
+        ? '${(requestedMaxFreq / 1000).toStringAsFixed(2)} GHz'
+        : '—';
     final String clockSubtext = isBeast
         ? (isThrottledByOs
               ? 'External clock limit detected · $beastTargetLabel remains the target'
@@ -12595,8 +12631,8 @@ class _AdrenoGpuScreenState extends State<AdrenoGpuScreen> {
                     : 'Fixed $beastTargetLabel target requested · waiting for live verification'))
         : (isGaming
               ? (liveCurFreq > 0
-                    ? 'Dynamic Gaming Load ($liveCurFreq MHz · 1.15 GHz Ceiling)'
-                    : 'Standby Dynamic (264 – 1150 MHz · KGSL DVFS Active)')
+                    ? 'Dynamic Gaming Load ($liveCurFreq MHz · ${(tableMaxFreq / 1000).toStringAsFixed(2)} GHz Ceiling)'
+                    : 'Standby Dynamic ($tableMinFreq – $tableMaxFreq MHz · KGSL DVFS Active)')
               : (isBattery
                     ? (liveCurFreq > 0
                           ? 'Live $liveCurFreq MHz · $minFreq–$maxFreq MHz Battery Range'
@@ -12659,7 +12695,7 @@ class _AdrenoGpuScreenState extends State<AdrenoGpuScreen> {
                   ],
                 ),
               ),
-              if (maxFreq >= 1150)
+              if (tableMaxFreq > 0 && maxFreq > 0 && maxFreq >= tableMaxFreq)
                 Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 8,
@@ -12672,9 +12708,9 @@ class _AdrenoGpuScreenState extends State<AdrenoGpuScreen> {
                       color: const Color(0xFFFF5252).withValues(alpha: 0.3),
                     ),
                   ),
-                  child: const Text(
-                    '1.15 GHz Target',
-                    style: TextStyle(
+                  child: Text(
+                    '${(tableMaxFreq / 1000).toStringAsFixed(2)} GHz Target',
+                    style: const TextStyle(
                       fontSize: 10.5,
                       fontWeight: FontWeight.w800,
                       color: Color(0xFFFF5252),
@@ -12868,6 +12904,8 @@ class _AdrenoGpuScreenState extends State<AdrenoGpuScreen> {
     required int activeProfile,
     required int minFreq,
     required int maxFreq,
+    required int tableMinFreq,
+    required int tableMaxFreq,
     required bool isUncapped,
     required Function(
       int profile,
@@ -12884,7 +12922,14 @@ class _AdrenoGpuScreenState extends State<AdrenoGpuScreen> {
   }) {
     final bool isBeast =
         activeProfile == 3 ||
-        (activeProfile < 0 && isUncapped && minFreq == 1150 && maxFreq == 1150);
+        (activeProfile < 0 &&
+            isUncapped &&
+            minFreq > 0 &&
+            minFreq == maxFreq &&
+            (tableMaxFreq <= 0 || maxFreq >= tableMaxFreq));
+    final int gpuTableMin = tableMinFreq > 0 ? tableMinFreq : minFreq;
+    final int gpuTableMax = tableMaxFreq > 0 ? tableMaxFreq : maxFreq;
+    final int saverCap = gpuTableMax < 510 ? gpuTableMax : 510;
     final bool isGaming = activeProfile == 1;
     final bool isBattery = activeProfile == 2;
     final bool isStock = !isBeast && !isGaming && !isBattery;
@@ -12909,18 +12954,18 @@ class _AdrenoGpuScreenState extends State<AdrenoGpuScreen> {
                 isDark: isDark,
                 colors: colors,
                 title: 'Extreme Beast',
-                range: '1150 MHz requested · Thermal limits apply',
+                range: '$gpuTableMax MHz requested · Thermal limits apply',
                 icon: Icons.bolt_rounded,
                 accent: const Color(0xFFFF5252),
                 isActive: isBeast,
                 onTap: () => onSelect(
                   3,
-                  1150,
-                  1150,
+                  gpuTableMax,
+                  gpuTableMax,
                   1,
                   true,
                   1,
-                  'Extreme Beast · Fixed 1.15 GHz',
+                  'Extreme Beast · Fixed ${(gpuTableMax / 1000).toStringAsFixed(2)} GHz',
                   Icons.bolt_rounded,
                   const Color(0xFFFF5252),
                 ),
@@ -12932,14 +12977,14 @@ class _AdrenoGpuScreenState extends State<AdrenoGpuScreen> {
                 isDark: isDark,
                 colors: colors,
                 title: 'Gaming Dynamic',
-                range: '264–1150 MHz · Full-range scaling',
+                range: '$gpuTableMin–$gpuTableMax MHz · Full-range scaling',
                 icon: Icons.sports_esports_rounded,
                 accent: const Color(0xFFFFB84D),
                 isActive: isGaming,
                 onTap: () => onSelect(
                   1,
-                  264,
-                  1150,
+                  gpuTableMin,
+                  gpuTableMax,
                   0,
                   true,
                   1,
@@ -12965,8 +13010,8 @@ class _AdrenoGpuScreenState extends State<AdrenoGpuScreen> {
                 isActive: isStock,
                 onTap: () => onSelect(
                   0,
-                  264,
-                  1150,
+                  gpuTableMin,
+                  gpuTableMax,
                   4,
                   false,
                   0,
@@ -12982,18 +13027,18 @@ class _AdrenoGpuScreenState extends State<AdrenoGpuScreen> {
                 isDark: isDark,
                 colors: colors,
                 title: 'Battery Saver',
-                range: '264–510 MHz · Efficiency cap',
+                range: '$gpuTableMin–$saverCap MHz · Efficiency cap',
                 icon: Icons.energy_savings_leaf_rounded,
                 accent: const Color(0xFF41C98A),
                 isActive: isBattery,
                 onTap: () => onSelect(
                   2,
-                  264,
-                  510,
+                  gpuTableMin,
+                  saverCap,
                   2,
                   false,
                   0,
-                  'Battery Saver · 510 MHz Cap',
+                  'Battery Saver · $saverCap MHz Cap',
                   Icons.energy_savings_leaf_rounded,
                   const Color(0xFF41C98A),
                 ),
@@ -13105,6 +13150,9 @@ class _AdrenoGpuScreenState extends State<AdrenoGpuScreen> {
     required bool isDark,
     required ColorScheme colors,
     required int thermalState,
+    required int tableMinFreq,
+    required int tableMaxFreq,
+    required double? gpuZoneTempC,
   }) {
     return SurfaceCard(
       child: Column(
@@ -13149,11 +13197,20 @@ class _AdrenoGpuScreenState extends State<AdrenoGpuScreen> {
                       ? '0 (Peridot Essential unrestricted override)'
                       : '$thermalState (vendor managed)'),
           ),
+          _buildDetailRow(
+            colors,
+            'GPU Zone Temperature',
+            gpuZoneTempC == null
+                ? 'Unavailable'
+                : '${gpuZoneTempC.toStringAsFixed(1)}°C',
+          ),
           _buildDetailRow(colors, 'GPU Driver', 'Qualcomm KGSL'),
           _buildDetailRow(
             colors,
             'Hardware Frequencies',
-            '11 Clock Steps (264 MHz → 1.15 GHz)',
+            tableMinFreq > 0 && tableMaxFreq > 0
+                ? 'Live OPP table ($tableMinFreq MHz → $tableMaxFreq MHz)'
+                : 'Unavailable',
           ),
         ],
       ),
@@ -13179,6 +13236,110 @@ class _AdrenoGpuScreenState extends State<AdrenoGpuScreen> {
                 fontWeight: FontWeight.w600,
                 color: colors.onSurface,
               ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Rolling GPU frequency telemetry card with sparkline.
+class _GpuTelemetryCard extends StatefulWidget {
+  const _GpuTelemetryCard({
+    required this.liveCurFreq,
+    required this.tableMinFreq,
+    required this.tableMaxFreq,
+  });
+
+  final double liveCurFreq;
+  final int tableMinFreq;
+  final int tableMaxFreq;
+
+  @override
+  State<_GpuTelemetryCard> createState() => _GpuTelemetryCardState();
+}
+
+class _GpuTelemetryCardState extends State<_GpuTelemetryCard> {
+  final List<double> _history = <double>[];
+
+  @override
+  void didUpdateWidget(covariant _GpuTelemetryCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final double sample = widget.liveCurFreq;
+    if (sample > 0 && (_history.isEmpty || _history.last != sample)) {
+      _history.add(sample);
+      if (_history.length > 120) _history.removeAt(0);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme colors = Theme.of(context).colorScheme;
+    final bool hasData = _history.length >= 2;
+    final String range = widget.tableMinFreq > 0 && widget.tableMaxFreq > 0
+        ? '${widget.tableMinFreq}–${widget.tableMaxFreq} MHz'
+        : 'KGSL OPP table unavailable';
+    return SurfaceCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              Icon(Icons.show_chart_rounded, size: 18, color: colors.primary),
+              const SizedBox(width: 8),
+              Text(
+                'LIVE FREQUENCY',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0.6,
+                  color: colors.onSurfaceVariant,
+                ),
+              ),
+              const Spacer(),
+              Text(
+                widget.liveCurFreq > 0
+                    ? '${widget.liveCurFreq.toStringAsFixed(0)} MHz'
+                    : '—',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w800,
+                  color: colors.primary,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          SizedBox(
+            height: 64,
+            child: hasData
+                ? PeridotFrequencySparkline(
+                    samples: List<double>.of(_history),
+                    minHz: widget.tableMinFreq > 0
+                        ? widget.tableMinFreq.toDouble()
+                        : 0,
+                    maxHz: widget.tableMaxFreq > 0
+                        ? widget.tableMaxFreq.toDouble()
+                        : 1,
+                    color: colors.primary,
+                  )
+                : Center(
+                    child: Text(
+                      'Collecting telemetry…',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: colors.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Hardware range · $range',
+            style: TextStyle(
+              fontSize: 11.5,
+              color: colors.onSurfaceVariant,
             ),
           ),
         ],
@@ -14103,6 +14264,128 @@ class _BackendSnapshotBuilder extends StatelessWidget {
       builder: builder,
     );
   }
+}
+
+/// Rolling GPU frequency history. Samples arrive with each backend snapshot;
+/// the chart only draws what has actually been observed, so a stalled daemon
+/// simply freezes the line instead of inventing a flat trend.
+class PeridotFrequencySparkline extends StatefulWidget {
+  const PeridotFrequencySparkline({
+    required this.samples,
+    required this.minHz,
+    required this.maxHz,
+    this.height = 64,
+    this.color,
+    this.maxSamples = 120,
+    super.key,
+  });
+
+  /// Newest sample last, in MHz. Non-positive readings are dropped.
+  final List<double> samples;
+  final double minHz;
+  final double maxHz;
+  final double height;
+  final Color? color;
+  final int maxSamples;
+
+  @override
+  State<PeridotFrequencySparkline> createState() =>
+      _PeridotFrequencySparklineState();
+}
+
+class _PeridotFrequencySparklineState extends State<PeridotFrequencySparkline> {
+  final List<double> _history = <double>[];
+  List<double>? _lastInput;
+
+  @override
+  Widget build(BuildContext context) {
+    final List<double> input = widget.samples;
+    if (!identical(input, _lastInput)) {
+      _lastInput = input;
+      for (final double sample in input) {
+        if (sample > 0 && (_history.isEmpty || _history.last != sample)) {
+          _history.add(sample);
+          if (_history.length > widget.maxSamples) {
+            _history.removeAt(0);
+          }
+        }
+      }
+    }
+    if (_history.length < 2 || widget.maxHz <= widget.minHz) {
+      return SizedBox(height: widget.height);
+    }
+    return CustomPaint(
+      size: Size(double.infinity, widget.height),
+      painter: _FrequencySparklinePainter(
+        history: List<double>.of(_history),
+        minHz: widget.minHz,
+        maxHz: widget.maxHz,
+        color: widget.color ?? Theme.of(context).colorScheme.primary,
+      ),
+    );
+  }
+}
+
+class _FrequencySparklinePainter extends CustomPainter {
+  _FrequencySparklinePainter({
+    required this.history,
+    required this.minHz,
+    required this.maxHz,
+    required this.color,
+  });
+
+  final List<double> history;
+  final double minHz;
+  final double maxHz;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (history.length < 2 || maxHz <= minHz) return;
+    final double span = (maxHz - minHz).abs().clamp(1.0, double.infinity);
+    final Path line = Path();
+    for (int i = 0; i < history.length; i++) {
+      final double x = i / (history.length - 1) * size.width;
+      final double y =
+          size.height -
+          ((history[i] - minHz) / span).clamp(0.0, 1.0) * size.height;
+      if (i == 0) {
+        line.moveTo(x, y);
+      } else {
+        line.lineTo(x, y);
+      }
+    }
+    final Path fill =
+        Path.from(line)
+          ..lineTo(size.width, size.height)
+          ..lineTo(0, size.height)
+          ..close();
+    canvas.drawPath(
+      fill,
+      Paint()
+        ..shader = ui.Gradient.linear(
+          Offset(0, 0),
+          Offset(0, size.height),
+          <Color>[color.withValues(alpha: 0.25), color.withValues(alpha: 0.0)],
+        ),
+    );
+    canvas.drawPath(
+      line,
+      Paint()
+        ..color = color
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.0
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_FrequencySparklinePainter oldDelegate) =>
+      !identical(oldDelegate.history, history) ||
+      oldDelegate.minHz != minHz ||
+      oldDelegate.maxHz != maxHz ||
+      oldDelegate.color != color;
 }
 
 class _InfoBlock extends StatelessWidget {

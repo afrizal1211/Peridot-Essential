@@ -69,6 +69,7 @@ fn key(control: &Control) -> String {
     match control {
         Control::Touch => "touch".into(),
         Control::Gpu => "gpu".into(),
+        Control::Sconfig => "sconfig".into(),
         Control::Refresh => "refresh".into(),
         Control::CpuCores => "cores".into(),
         Control::CpuRange(p) => format!("range{p}"),
@@ -79,6 +80,7 @@ fn control(key: &str) -> Option<Control> {
     match key {
         "touch" => Some(Control::Touch),
         "gpu" => Some(Control::Gpu),
+        "sconfig" => Some(Control::Sconfig),
         "refresh" => Some(Control::Refresh),
         "cores" => Some(Control::CpuCores),
         _ => [0, 3, 7].into_iter().find_map(|p| {
@@ -125,6 +127,7 @@ fn copy_preference(c: &Control, from: &PersistedState, to: &mut PersistedState) 
             to.gpu_uncap = from.gpu_uncap;
             to.gpu_power_policy = from.gpu_power_policy.clone();
         }
+        Control::Sconfig => to.sconfig_override = from.sconfig_override,
         _ => {}
     }
 }
@@ -259,6 +262,11 @@ impl Hardware for Adapter {
         match (c, target) {
             (Control::Touch, Target::Touch(v)) => set_touch_profile(*v as i32),
             (Control::Gpu, Target::Gpu(v)) => apply_performance_profile(*v as i32),
+            (Control::Sconfig, Target::Sconfig(v)) => {
+                let mode = i32::from(*v);
+                sconfig::set(mode)?;
+                mutate_persisted_state(|s| s.sconfig_override = mode)
+            }
             (Control::CpuRange(p), Target::CpuRange { min, max }) => {
                 set_cpu_cluster_freq_range(*p as i32, *min as i32, *max as i32)
             }
@@ -284,6 +292,13 @@ impl Hardware for Adapter {
         let _temporary = Temporary::begin();
         match c {
             Control::Touch => set_touch_profile(saved.state.touch.max(0))?,
+            Control::Sconfig => {
+                if saved.state.sconfig_override >= 0 {
+                    sconfig::set(saved.state.sconfig_override)?;
+                } else {
+                    sconfig::release()?;
+                }
+            }
             Control::Gpu => {
                 apply_performance_profile(saved.state.perf)?;
                 let min = saved.state.gpu_min_freq_mhz;
@@ -658,7 +673,7 @@ fn capabilities_json() -> Result<Value, String> {
         cpu[p.to_string()] = json!({"frequencies":caps.cpu_frequencies.get(&p),"governors":caps.cpu_governors.get(&p)});
     }
     Ok(
-        json!({"touch":caps.touch,"gpu":caps.gpu,"refresh":caps.refresh,"cpu":cpu,"cores":caps.manual_cores}),
+        json!({"touch":caps.touch,"gpu":caps.gpu,"refresh":caps.refresh,"cpu":cpu,"cores":caps.manual_cores,"sconfig":sconfig::supported()}),
     )
 }
 fn foreground() -> Result<Option<App>, String> {
@@ -980,11 +995,9 @@ pub(super) fn start() {
             // Vendor events may precede the authoritative focused summary.
             // Bounded read-only settling checks, not a permanent polling loop.
             for delay in [0, 150, 350] {
-                if delay > 0 {
-                    if receiver.recv_timeout(Duration::from_millis(delay)).is_ok() {
-                        // A newer event supersedes the pending settling check.
-                        while receiver.try_recv().is_ok() {}
-                    }
+                if delay > 0 && receiver.recv_timeout(Duration::from_millis(delay)).is_ok() {
+                    // A newer event supersedes the pending settling check.
+                    while receiver.try_recv().is_ok() {}
                 }
                 let _gate = service_control::GATE.write().expect("service gate");
                 if let Ok(mut r) = runtime().lock() {
@@ -1112,9 +1125,11 @@ mod tests {
     }
     #[test]
     fn gpu_baseline_copy_does_not_touch_cpu_or_touch() {
-        let mut global = PersistedState::default();
-        global.cpu_min_freq0 = 1000;
-        global.touch = 2;
+        let global = PersistedState {
+            cpu_min_freq0: 1000,
+            touch: 2,
+            ..Default::default()
+        };
         let mut effective = global.clone();
         effective.perf = 3;
         effective.cpu_min_freq0 = 2100;
@@ -1126,8 +1141,10 @@ mod tests {
     }
     #[test]
     fn cpu_range_baseline_does_not_change_governor() {
-        let mut global = PersistedState::default();
-        global.cpu0 = "schedutil".into();
+        let global = PersistedState {
+            cpu0: "schedutil".into(),
+            ..Default::default()
+        };
         let mut effective = global.clone();
         effective.cpu0 = "performance".into();
         copy_preference(&Control::CpuRange(0), &global, &mut effective);

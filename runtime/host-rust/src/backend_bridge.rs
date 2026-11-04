@@ -66,8 +66,7 @@ fn app_log(message: &'static [u8]) {
 /// Host-side ring buffer for in-app log viewer. Capped at 100 entries.
 /// Format: "timestamp source LEVEL message|next|..."
 const HOST_LOG_CAP: usize = 100;
-static HOST_LOG: std::sync::OnceLock<std::sync::Mutex<Vec<String>>> =
-    std::sync::OnceLock::new();
+static HOST_LOG: std::sync::OnceLock<std::sync::Mutex<Vec<String>>> = std::sync::OnceLock::new();
 
 fn host_log() -> &'static std::sync::Mutex<Vec<String>> {
     HOST_LOG.get_or_init(|| std::sync::Mutex::new(Vec::with_capacity(HOST_LOG_CAP)))
@@ -911,6 +910,9 @@ fn refresh(cache: &Cache) -> Result<(), String> {
         ("gpu_requested_max", 129),
         ("gpu_min_freq", 47),
         ("gpu_max_freq", 48),
+        ("gpu_table_min", 122),
+        ("gpu_table_max", 123),
+        ("gpu_zone_temp", 124),
         ("gpu_ged_boost", 50),
         ("gpu_thermal_state", 51),
         ("gpu_uncap_active", 52),
@@ -988,11 +990,7 @@ fn refresh(cache: &Cache) -> Result<(), String> {
     };
     cache.extended[49].store(gov_code, Ordering::Release);
 
-    for (slot, key) in [
-        (0, "cpu_avail0"),
-        (1, "cpu_avail3"),
-        (2, "cpu_avail7"),
-    ] {
+    for (slot, key) in [(0, "cpu_avail0"), (1, "cpu_avail3"), (2, "cpu_avail7")] {
         let Some(raw) = map.get(key) else {
             continue;
         };
@@ -1592,7 +1590,15 @@ fn send(command: Command) -> i32 {
         .map(|_| 1)
         .unwrap_or(0);
     if ok == 0 {
-        log_host(if label == "refresh" { "daemon" } else { "backend" }, "ERROR", &format!("send failed: {label}"));
+        log_host(
+            if label == "refresh" {
+                "daemon"
+            } else {
+                "backend"
+            },
+            "ERROR",
+            &format!("send failed: {label}"),
+        );
     }
     ok
 }

@@ -57,14 +57,7 @@ fn choose_range(profile: i32, opps: &[i32], stock: (i32, i32)) -> Result<(i32, i
     match profile {
         0 => Ok(stock),
         1 => Ok((min, max)),
-        2 => Ok((
-            min,
-            *opps
-                .iter()
-                .filter(|v| **v <= 510)
-                .next_back()
-                .unwrap_or(&min),
-        )),
+        2 => Ok((min, *opps.iter().rfind(|v| **v <= 510).unwrap_or(&min))),
         3 => Ok((max, max)),
         _ => Err("invalid GPU profile".into()),
     }
@@ -72,7 +65,8 @@ fn choose_range(profile: i32, opps: &[i32], stock: (i32, i32)) -> Result<(i32, i
 pub(super) fn profile_range(profile: i32) -> Result<(i32, i32), String> {
     let opps = table()?;
     remember_defaults()?;
-    let saved = service_control::original("peridot.gpu.defaults").ok_or("GPU defaults unavailable")?;
+    let saved =
+        service_control::original("peridot.gpu.defaults").ok_or("GPU defaults unavailable")?;
     let stock = (
         saved[0].as_i64().ok_or("invalid GPU default")? as i32,
         saved[1].as_i64().ok_or("invalid GPU default")? as i32,
@@ -122,6 +116,16 @@ pub(super) fn set_range(min: i32, max: i32) -> Result<(), String> {
     Ok(())
 }
 
+/// Live OPP table bounds in MHz, or (-1, -1) when the table is unreadable.
+pub(super) fn table_bounds() -> (i32, i32) {
+    table().map_or((-1, -1), |v| {
+        (
+            v.first().copied().unwrap_or(-1),
+            v.last().copied().unwrap_or(-1),
+        )
+    })
+}
+
 pub(super) fn apply_profile(profile: i32) -> Result<(), String> {
     let (min, max) = profile_range(profile)?;
     if !read("available_governors")
@@ -152,5 +156,15 @@ mod tests {
         assert_eq!(choose_range(2, &opps, (264, 873)).unwrap(), (264, 510));
         assert_eq!(choose_range(3, &opps, (264, 873)).unwrap(), (1150, 1150));
         assert!(choose_range(4, &opps, (264, 873)).is_err());
+    }
+    /// Regression: a device whose table tops out below 1150 MHz (e.g. an
+    /// SM8635 variant reporting 1100 MHz) must never be offered 1150.
+    #[test]
+    fn profiles_follow_a_lower_hardware_ceiling() {
+        let opps = parse_table("1100000000 873000000 510000000 362000000 264000000");
+        assert_eq!(opps.last(), Some(&1100));
+        assert_eq!(choose_range(1, &opps, (264, 873)).unwrap(), (264, 1100));
+        assert_eq!(choose_range(3, &opps, (264, 873)).unwrap(), (1100, 1100));
+        assert!(choose_range(2, &opps, (264, 873)).unwrap().1 <= 510);
     }
 }

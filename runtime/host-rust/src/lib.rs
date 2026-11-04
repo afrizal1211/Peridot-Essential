@@ -17,7 +17,8 @@ use std::time::Duration;
 // FFI reads are atomic only; permission UI is requested from the
 // NativeActivity/main choreographer thread.
 
-static PERIDOT_PHOTO_ACTIVITY: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+static PERIDOT_PHOTO_ACTIVITY: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
 static PERIDOT_PHOTO_CHOREOGRAPHER: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 static PERIDOT_PHOTO_PERMISSION_STATE: std::sync::atomic::AtomicI32 =
@@ -294,14 +295,10 @@ fn peridot_photo_init(activity: *mut ANativeActivity) {
     peridot_photo_refresh_permission(activity);
 }
 
-static PERIDOT_EXPORT_PATH: std::sync::atomic::AtomicUsize =
-    std::sync::atomic::AtomicUsize::new(0);
+static PERIDOT_EXPORT_PATH: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 static mut PERIDOT_EXPORT_CHOREOGRAPHER: i64 = 0;
 
-extern "C" fn on_export_frame(
-    _frame_time_nanos: i64,
-    _data: *mut c_void,
-) {
+extern "C" fn on_export_frame(_frame_time_nanos: i64, _data: *mut c_void) {
     let path_ptr = PERIDOT_EXPORT_PATH.load(Ordering::Acquire);
     PERIDOT_EXPORT_PATH.store(0, Ordering::Release);
     if path_ptr == 0 {
@@ -312,8 +309,7 @@ extern "C" fn on_export_frame(
     let file_path = std::path::PathBuf::from(&*path_box);
     drop(path_box);
 
-    let activity_ptr =
-        PERIDOT_HAPTIC_ACTIVITY.load(Ordering::Acquire) as *mut ANativeActivity;
+    let activity_ptr = PERIDOT_HAPTIC_ACTIVITY.load(Ordering::Acquire) as *mut ANativeActivity;
     if activity_ptr.is_null() {
         return;
     }
@@ -397,8 +393,7 @@ pub extern "C" fn peridot_backend_export_logs(content: *const c_char, len: i32) 
     let _ = std::fs::create_dir_all(&cache_dir);
     let file_path = cache_dir.join("peridot_logs.txt");
 
-    let bytes =
-        unsafe { std::slice::from_raw_parts(content as *const u8, len as usize) };
+    let bytes = unsafe { std::slice::from_raw_parts(content as *const u8, len as usize) };
     if std::fs::write(&file_path, bytes).is_err() {
         return 0;
     }
@@ -416,20 +411,21 @@ pub extern "C" fn peridot_backend_export_logs(content: *const c_char, len: i32) 
     }
     // SAFETY: choreographer was set from AChoreographer_getInstance in onCreate.
     // on_export_frame matches the C calling convention required by the callback.
-    unsafe { schedule_export_callback(choreographer, on_export_frame); }
+    unsafe {
+        schedule_export_callback(choreographer, on_export_frame);
+    }
     1
 }
 
-unsafe fn schedule_export_callback(
-    choreographer: i64,
-    _callback: extern "C" fn(i64, *mut c_void),
-) {
-    // choreographer is validated (non-zero). Call the choreographer API directly from this unsafe fn.
-    AChoreographer_postFrameCallback64(
-        choreographer as *mut AChoreographer,
-        on_export_frame,
-        std::ptr::null_mut(),
-    );
+unsafe fn schedule_export_callback(choreographer: i64, _callback: extern "C" fn(i64, *mut c_void)) {
+    unsafe {
+        // choreographer is validated (non-zero). Call the choreographer API directly from this unsafe fn.
+        AChoreographer_postFrameCallback64(
+            choreographer as *mut AChoreographer,
+            on_export_frame,
+            std::ptr::null_mut(),
+        );
+    }
 }
 
 pub fn peridot_export_init() {
@@ -444,7 +440,11 @@ pub extern "C" fn peridot_host_photo_permission_state() -> i32 {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn peridot_host_request_photo_permission() -> i32 {
-    if peridot_photo_schedule_request() { 1 } else { 0 }
+    if peridot_photo_schedule_request() {
+        1
+    } else {
+        0
+    }
 }
 // Dart only posts a semantic integer. JNI work is deferred to the
 // NativeActivity main AChoreographer and never runs on Flutter's UI thread.
@@ -640,7 +640,8 @@ fn peridot_haptic_init(activity: *mut ANativeActivity) {
     PERIDOT_HAPTIC_ACTIVITY.store(activity as usize, std::sync::atomic::Ordering::Release);
 
     let choreographer = unsafe { peridot_haptic_choreographer_get_instance() };
-    PERIDOT_HAPTIC_CHOREOGRAPHER.store(choreographer as usize, std::sync::atomic::Ordering::Release);
+    PERIDOT_HAPTIC_CHOREOGRAPHER
+        .store(choreographer as usize, std::sync::atomic::Ordering::Release);
 }
 
 #[unsafe(no_mangle)]
@@ -777,7 +778,8 @@ pub fn peridot_host_open_url_jni(code: i32) -> bool {
 }
 static PERIDOT_BACK_INTERCEPT: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
-static PERIDOT_BACK_PENDING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static PERIDOT_BACK_PENDING: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
 
 #[link(name = "android")]
 unsafe extern "C" {

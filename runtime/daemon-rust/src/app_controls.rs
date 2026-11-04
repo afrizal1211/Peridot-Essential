@@ -9,6 +9,8 @@ use std::io::{Read, Write};
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::Path;
 
+use super::sconfig;
+
 const SCHEMA: u64 = 1;
 const MAX_CONFIG_BYTES: u64 = 512 * 1024;
 const MAX_PROFILES: usize = 512;
@@ -47,6 +49,7 @@ pub(super) enum Control {
     Touch,
     Refresh,
     Gpu,
+    Sconfig,
     CpuRange(u8),
     CpuGovernor(u8),
     CpuCores,
@@ -58,6 +61,7 @@ pub(super) enum Target {
     /// Zero means OEM adaptive, not a manufactured fixed refresh rate.
     Refresh(u16),
     Gpu(u8),
+    Sconfig(u8),
     CpuRange {
         min: u32,
         max: u32,
@@ -97,6 +101,9 @@ impl Capabilities {
                 (Control::Touch, Target::Touch(value)) => self.touch.contains(value),
                 (Control::Refresh, Target::Refresh(value)) => self.refresh.contains(value),
                 (Control::Gpu, Target::Gpu(value)) => self.gpu.contains(value),
+                (Control::Sconfig, Target::Sconfig(value)) => {
+                    sconfig::supported() && sconfig::supported_mode(i32::from(*value))
+                }
                 (Control::CpuRange(policy), Target::CpuRange { min, max }) => {
                     min <= max
                         && self
@@ -144,13 +151,21 @@ impl Profile {
     pub fn parse(value: &Value) -> Result<Self, String> {
         fields(
             value,
-            &["enabled", "touch", "refresh", "gpu", "cpu", "cores"],
+            &[
+                "enabled", "touch", "refresh", "gpu", "sconfig", "cpu", "cores",
+            ],
         )?;
         let mut profile = Self {
             enabled: boolean(value, "enabled")?,
             ..Self::default()
         };
-        for (key, max) in [("touch", 3), ("gpu", 3), ("cores", 255), ("refresh", 120)] {
+        for (key, max) in [
+            ("touch", 3),
+            ("gpu", 3),
+            ("sconfig", 6),
+            ("cores", 255),
+            ("refresh", 120),
+        ] {
             if value.get(key).is_none_or(Value::is_null) {
                 continue;
             }
@@ -158,6 +173,7 @@ impl Profile {
             let (control, target) = match key {
                 "touch" => (Control::Touch, Target::Touch(number as u8)),
                 "gpu" => (Control::Gpu, Target::Gpu(number as u8)),
+                "sconfig" => (Control::Sconfig, Target::Sconfig(number as u8)),
                 "cores" if number & 1 != 0 => (Control::CpuCores, Target::CpuCores(number as u8)),
                 "refresh" if matches!(number, 0 | 60 | 90 | 120) => {
                     (Control::Refresh, Target::Refresh(number as u16))
@@ -167,8 +183,8 @@ impl Profile {
             profile.controls.insert(control, target);
         }
         if let Some(cpu) = value.get("cpu").filter(|v| !v.is_null()) {
-            fields(cpu, &["0", "2", "5", "7"])?;
-            for policy in [0u8, 2, 5, 7] {
+            fields(cpu, &["0", "3", "7"])?;
+            for policy in [0u8, 3, 7] {
                 let key = policy.to_string();
                 let Some(cluster) = cpu.get(&key) else {
                     continue;
@@ -223,6 +239,7 @@ impl Profile {
                 (Control::Touch, Target::Touch(v)) => value["touch"] = json!(v),
                 (Control::Refresh, Target::Refresh(v)) => value["refresh"] = json!(v),
                 (Control::Gpu, Target::Gpu(v)) => value["gpu"] = json!(v),
+                (Control::Sconfig, Target::Sconfig(v)) => value["sconfig"] = json!(v),
                 (Control::CpuCores, Target::CpuCores(v)) => value["cores"] = json!(v),
                 (Control::CpuRange(policy), Target::CpuRange { min, max }) => {
                     let key = policy.to_string();
@@ -544,6 +561,14 @@ mod tests {
         assert!(!p.controls.contains_key(&Control::CpuGovernor(0)));
         assert_eq!(Profile::parse(&p.json()).unwrap(), p);
     }
+
+    #[test]
+    fn sconfig_profile_parses_and_round_trips() {
+        let p = Profile::parse(&json!({"enabled":true,"sconfig":6})).unwrap();
+        assert_eq!(p.controls.get(&Control::Sconfig), Some(&Target::Sconfig(6)));
+        assert_eq!(Profile::parse(&p.json()).unwrap(), p);
+        assert!(Profile::parse(&json!({"enabled":true,"sconfig":7})).is_err());
+    }
     #[test]
     fn explicit_oem_is_different_from_follow_global() {
         let p = Profile::parse(&json!({"enabled":true,"touch":0,"refresh":0,"gpu":null})).unwrap();
@@ -751,8 +776,10 @@ mod tests {
     }
     #[test]
     fn resetting_current_profile_releases_all_borrowed_controls() {
-        let mut config = Config::default();
-        config.enabled = true;
+        let mut config = Config {
+            enabled: true,
+            ..Config::default()
+        };
         config.profiles.insert(app(), profile());
         let mut h = hardware();
         let original = h.values.clone();
@@ -830,8 +857,10 @@ mod tests {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let dir =
-            std::env::temp_dir().join(format!("peridot-profiles-test-{}-{nonce}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "peridot-profiles-test-{}-{nonce}",
+            std::process::id()
+        ));
         let path = dir.join("profiles.json");
         assert_eq!(Config::load(&path).unwrap(), Config::default());
         let mut config = Config::default();

@@ -102,8 +102,7 @@ pub fn ufs_devfreq() -> Option<PathBuf> {
 /// One DCVS rail. `boost_freq` is a floor vote; the driver clamps it to
 /// `[hw_min_freq, hw_max_freq]` and rejects anything above `hw_max_freq`.
 pub fn dcvs_rail(root: &Path) -> Value {
-    let supported =
-        root.join("boost_freq").is_file() && root.join("hw_max_freq").is_file();
+    let supported = root.join("boost_freq").is_file() && root.join("hw_max_freq").is_file();
     json!({
         "supported": supported,
         "boost_hz": number(&root.join("boost_freq")),
@@ -162,7 +161,12 @@ pub fn probe_storage() -> Value {
 pub fn probe_memory() -> Value {
     let rails = RAILS
         .into_iter()
-        .map(|rail| (rail.to_string(), dcvs_rail(&Path::new(DCVS_BASE).join(rail))))
+        .map(|rail| {
+            (
+                rail.to_string(),
+                dcvs_rail(&Path::new(DCVS_BASE).join(rail)),
+            )
+        })
         .collect::<serde_json::Map<String, Value>>();
     json!({"base": DCVS_BASE, "rails": rails})
 }
@@ -217,8 +221,7 @@ mod tests {
     use super::*;
 
     fn rail_dir(name: &str, boost: &str, min: &str, max: &str) -> PathBuf {
-        let root =
-            std::env::temp_dir().join(format!("peridot-rail-{}-{name}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("peridot-rail-{}-{name}", std::process::id()));
         fs::create_dir_all(&root).unwrap();
         fs::write(root.join("boost_freq"), boost).unwrap();
         fs::write(root.join("hw_min_freq"), min).unwrap();

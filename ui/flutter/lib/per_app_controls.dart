@@ -1049,7 +1049,9 @@ class _PerAppEditorState extends State<_PerAppEditor> {
               const SizedBox(height: 14),
               _choice('Touch response', _draft['touch'], <String, String>{
                 for (final int v in _numbers('touch'))
-                  '$v': v == 0 ? 'OEM · 125 Hz observed' : _peridotTouchLabel(v),
+                  '$v': v == 0
+                      ? 'OEM · 125 Hz observed'
+                      : _peridotTouchLabel(v),
               }, (String? v) => _set('touch', v == null ? null : int.parse(v))),
               _choice(
                 'Refresh rate',
@@ -1086,8 +1088,23 @@ class _PerAppEditorState extends State<_PerAppEditor> {
                 for (final int v in _numbers('gpu'))
                   '$v': _peridotPerformanceLabel(v),
               }, (String? v) => _set('gpu', v == null ? null : int.parse(v))),
+              if (widget.capabilities['sconfig'] == true)
+                _choice(
+                  'Xiaomi Sconfig',
+                  _draft['sconfig'],
+                  <String, String>{
+                    '0': 'Normal',
+                    '6': 'NoLimits',
+                    '18': 'Game',
+                    '50': 'Perf. Normal',
+                    '56': 'Perf. NoLimits',
+                    '68': 'Perf. Game',
+                  },
+                  (String? v) =>
+                      _set('sconfig', v == null ? null : int.parse(v)),
+                ),
               const Text(
-                'Changes GPU controls only.',
+                'Changes GPU and Sconfig controls only.',
                 style: TextStyle(fontSize: 11, height: 1.4),
               ),
             ],

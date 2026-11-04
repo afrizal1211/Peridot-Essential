@@ -180,10 +180,10 @@ pub(super) fn original(key: &str) -> Option<Value> {
 }
 
 fn canonical_key(key: &str) -> String {
-    if key.starts_with("/sys/") {
-        if let Ok(path) = fs::canonicalize(key) {
-            return path.to_string_lossy().into_owned();
-        }
+    if key.starts_with("/sys/")
+        && let Ok(path) = fs::canonicalize(key)
+    {
+        return path.to_string_lossy().into_owned();
     }
     key.to_string()
 }
@@ -277,13 +277,11 @@ pub(super) fn normalized_original(path: &Path, raw: &str) -> String {
     if matches!(
         path.file_name().and_then(|v| v.to_str()),
         Some("scheduler" | "power_policy")
-    ) {
-        if let Some(selected) = raw
-            .split_whitespace()
-            .find_map(|s| s.strip_prefix('[').and_then(|s| s.strip_suffix(']')))
-        {
-            return selected.to_string();
-        }
+    ) && let Some(selected) = raw
+        .split_whitespace()
+        .find_map(|s| s.strip_prefix('[').and_then(|s| s.strip_suffix(']')))
+    {
+        return selected.to_string();
     }
     if path.file_name().and_then(|v| v.to_str()) == Some("switch_report_rate") {
         if raw.contains("240") {

@@ -8,7 +8,9 @@ const PATHS: [&str; 2] = [
 ];
 static LOCK: Mutex<()> = Mutex::new(());
 pub(super) fn supported_mode(mode: i32) -> bool {
-    matches!(mode, 0 | 6 | 18 | 50)
+    // 50/56/68 are the vendor "performance" variants of 0/6/18; the host
+    // bridge and the global Sconfig card already expose all six.
+    matches!(mode, 0 | 6 | 18 | 50 | 56 | 68)
 }
 fn path() -> Result<PathBuf, String> {
     #[cfg(not(target_os = "android"))]
@@ -98,10 +100,10 @@ mod tests {
     use super::*;
     #[test]
     fn only_exposed_stock_scenarios_can_be_selected() {
-        for mode in [0, 6, 18, 50] {
+        for mode in [0, 6, 18, 50, 56, 68] {
             assert!(supported_mode(mode));
         }
-        for mode in [-1, 1, 7, 2048, 9999] {
+        for mode in [-1, 1, 7, 51, 67, 2048, 9999] {
             assert!(!supported_mode(mode));
         }
     }

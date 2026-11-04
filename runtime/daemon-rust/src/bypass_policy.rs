@@ -4,6 +4,10 @@ pub fn valid_threshold(value: i32) -> bool {
     matches!(value, 0 | 20 | 40 | 80 | 90)
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "each argument is an independent hardware input of the phase state machine"
+)]
 pub fn phase(
     enabled: bool,
     threshold: i32,
