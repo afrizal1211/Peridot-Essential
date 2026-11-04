@@ -4396,12 +4396,6 @@ class HubsScreen extends StatelessWidget {
         final int activePerf = snapshot.performanceProfile >= 0
             ? snapshot.performanceProfile
             : 0;
-        final bool isBeast =
-            (rawUncap == 1 &&
-                    rawMaxFreq > 0 &&
-                    rawMinFreq > 0 &&
-                    rawMinFreq == rawMaxFreq) ||
-            activePerf == 3;
         final String gpuLabel = liveGpuFreq >= 260
             ? '$liveGpuFreq MHz'
             : (rawMaxFreq > 0 ? '$rawMaxFreq MHz' : '—');
