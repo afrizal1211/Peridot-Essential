@@ -729,7 +729,6 @@ final class PeridotBackend {
       19 => 'cpu${(a)} min freq',
       20 => 'cpu${(a)} max freq',
       21 => 'cpu${(a)} range',
-      22 => 'gpu power policy',
       23 => 'cpu${(a)} freq reset',
       31 => 'bypass threshold $a',
       _ => 'op $op a=$a b=$b',
@@ -912,9 +911,6 @@ final class PeridotBackend {
     7 => extendedValue(77),
     _ => -1,
   };
-
-  bool setGpuPowerPolicy(int policyCode) =>
-      setExtendedOperation(22, policyCode);
 
   int photoPermissionState() {
     if (!_started) return 0;

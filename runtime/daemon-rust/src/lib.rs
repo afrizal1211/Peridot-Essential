@@ -4082,7 +4082,7 @@ fn restore_persisted_state() {
 
     if (0..=3).contains(&state.perf) {
         // GPU profiles are isolated from CPU controls. Preserve the exact
-        // persisted selection while restoring the requested Mali state.
+        // persisted selection while restoring the requested GPU state.
         let persisted = state.clone();
         if let Err(error) = apply_performance_profile(state.perf) {
             log_daemon(&format!("GPU_PROFILE_RESTORE_FAIL {error}"));
@@ -4828,7 +4828,7 @@ fn compact_zram() -> Result<(), String> {
     Ok(())
 }
 
-// MALI GPU & MEDIATEK GED HELPERS
+// MEDIATEK GED HELPERS (KGSL device: dead code, kept for upstream parity)
 // Ponytail: SM8635 (POCO F6 / Peridot) is a Qualcomm/Adreno device.
 // These stubs exist only because the upstream NeonEssential also supported
 // MediaTek devices. All callers handle Err gracefully; the stubs are dead
@@ -4912,10 +4912,6 @@ fn gpu_get_lowest_opp_index() -> i32 {
                 .and_then(|part| part.parse::<i32>().ok())
         })
         .map(|count| count.saturating_sub(1))
-        .or_else(|| {
-            gpu_read_raw("/sys/class/devfreq/13000000.mali/available_frequencies")
-                .map(|value| value.split_whitespace().count().saturating_sub(1) as i32)
-        })
         .unwrap_or(40)
         .clamp(0, 255)
 }
@@ -5054,7 +5050,7 @@ fn gpu_get_power_policy() -> String {
 
 fn set_gpu_power_policy(policy: &str) -> Result<(), String> {
     let _ = policy;
-    Err("Mali power policy is unavailable on KGSL".into())
+    Err("GPU power policy control is unavailable on KGSL".into())
 }
 
 fn snapshot_persistence_fields() -> Vec<String> {
@@ -6197,6 +6193,11 @@ fn serve_authenticated_client<S: Read + Write>(mut stream: S, peer: u32, transpo
     };
     let req = String::from_utf8_lossy(&bytes);
     let response = handle_command(&req);
+    if response.starts_with("ERR") {
+        // Surface failed SET/ACTION commands in the in-app log ring so a
+        // broken option is visible without adb logcat.
+        log_daemon(&format!("CMD_FAIL {req} → {response}"));
+    }
     let _ = stream.write_all(response.as_bytes());
     let _ = stream.write_all(b"\n");
     let _ = stream.flush();

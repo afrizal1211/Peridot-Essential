@@ -272,9 +272,11 @@ class _PerAppControlsScreenState extends State<PerAppControlsScreen> {
       final dynamic reply = await _command(command);
       if (mounted)
         setState(() => _state = Map<String, dynamic>.from(reply as Map));
+      PeridotLogger().ok('per-app', command);
       return true;
     } catch (error) {
       if (mounted) setState(() => _error = '$error');
+      PeridotLogger().error('per-app', '$command → $error');
       return false;
     } finally {
       if (mounted) setState(() => _busy = false);

@@ -324,8 +324,8 @@ mod tests {
         );
         assert_eq!(
             normalized_original(
-                Path::new("/sys/mali/power_policy"),
-                "[coarse_demand] always_on"
+                Path::new("/sys/class/thermal/thermal_message/sconfig"),
+                "coarse_demand"
             ),
             "coarse_demand"
         );

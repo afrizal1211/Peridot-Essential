@@ -1214,14 +1214,6 @@ fn perform(command: Command) -> Result<(), String> {
                     let cmd_str = format!("SET cpu.freq_range {a} {min} {max}");
                     return request(&cmd_str).map(|_| ());
                 }
-                22 => {
-                    if let Some(r) = runtime() {
-                        r.cache.extended[59].store(a, Ordering::Release);
-                    }
-                    let pol = if a == 1 { "always_on" } else { "coarse_demand" };
-                    let cmd_str = format!("SET gpu.power_policy {pol}");
-                    return request(&cmd_str).map(|_| ());
-                }
                 23 if matches!(a, 0 | 3 | 7) => {
                     let cmd_str = format!("SET cpu.freq_reset {a}");
                     return request(&cmd_str).map(|_| ());
@@ -1463,6 +1455,7 @@ fn worker(cache: Arc<Cache>, rx: mpsc::Receiver<Command>) {
                         Err(error) => {
                             cache.ready.store(0, Ordering::Release);
                             peridot_action_log(format!("PERIDOT_REFRESH_FAIL error={error}"));
+                            log_host("bridge", "ERROR", &format!("REFRESH_FAIL {error}"));
                             if !logged_fail {
                                 app_log(b"PERIDOT_BACKEND_APP=FAIL socket_or_selinux\0");
                                 logged_fail = true;
@@ -1510,6 +1503,11 @@ fn worker(cache: Arc<Cache>, rx: mpsc::Receiver<Command>) {
                                 peridot_action_log(format!(
                                     "PERIDOT_ACTION_REFRESH_FAIL action={name} elapsed_ms={elapsed} error={error}"
                                 ));
+                                log_host(
+                                    "bridge",
+                                    "ERROR",
+                                    &format!("ACTION_REFRESH_FAIL {name}: {error}"),
+                                );
                             }
                         }
                     }
@@ -1528,6 +1526,7 @@ fn worker(cache: Arc<Cache>, rx: mpsc::Receiver<Command>) {
                         peridot_action_log(format!(
                             "PERIDOT_ACTION_FAIL action={name} elapsed_ms={elapsed} error={error}"
                         ));
+                        log_host("bridge", "ERROR", &format!("ACTION_FAIL {name}: {error}"));
                     }
                 }
 

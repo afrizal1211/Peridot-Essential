@@ -3356,7 +3356,7 @@ class _HomePulseHero extends StatelessWidget {
                               const SizedBox(width: 7),
                               Expanded(
                                 child: _HomeHeroMetric(
-                                  label: 'MALI GPU',
+                                  label: 'ADRENO GPU',
                                   value: gpu,
                                   detail: liveGpuFreq > 0
                                       ? 'Live clock'
@@ -12145,13 +12145,10 @@ class _AdrenoGpuScreenState extends State<AdrenoGpuScreen> {
   bool? _optimisticUncap;
   int? _optimisticMinFreq;
   int? _optimisticMaxFreq;
-  int? _optimisticGov;
-  bool? _optimisticGedBoost;
-  int? _optimisticPowerPolicy;
   Timer? _interactionTimer;
 
   // Glass Frosted HUD Toast State
-  String _toastTag = 'MALI GPU';
+  String _toastTag = 'ADRENO GPU';
   String _toastMessage = '';
   IconData _toastIcon = Icons.sports_esports_rounded;
   Color _toastAccent = const Color(0xFFFF5252);
@@ -12196,9 +12193,6 @@ class _AdrenoGpuScreenState extends State<AdrenoGpuScreen> {
     int profileCode,
     int min,
     int max,
-    int gov,
-    bool ged,
-    int powerPolicy,
     String name,
     IconData icon,
     Color accent,
@@ -12210,9 +12204,6 @@ class _AdrenoGpuScreenState extends State<AdrenoGpuScreen> {
       _optimisticProfile = profileCode;
       _optimisticMinFreq = profileCode == 0 ? null : min;
       _optimisticMaxFreq = profileCode == 0 ? null : max;
-      _optimisticGov = null;
-      _optimisticGedBoost = false;
-      _optimisticPowerPolicy = null;
       _optimisticUncap = willUncap;
     });
 
@@ -12236,64 +12227,7 @@ class _AdrenoGpuScreenState extends State<AdrenoGpuScreen> {
           _optimisticUncap = null;
           _optimisticMinFreq = null;
           _optimisticMaxFreq = null;
-          _optimisticGov = null;
-          _optimisticGedBoost = null;
-          _optimisticPowerPolicy = null;
         });
-      }
-    });
-  }
-
-  void _applyPowerPolicy(int policyCode) {
-    PeridotHaptics.confirm();
-    setState(() => _optimisticPowerPolicy = policyCode);
-
-    final String name = policyCode == 1
-        ? 'Always-On (Zero Latency)'
-        : 'Coarse Demand (Dynamic)';
-    _showGlassToast(
-      'MALI POWER POLICY',
-      'Set Policy to $name',
-      policyCode == 1 ? Icons.bolt_rounded : Icons.eco_rounded,
-      policyCode == 1 ? const Color(0xFFFF5252) : const Color(0xFF67C2FF),
-    );
-
-    PeridotBackend.instance.setGpuPowerPolicy(policyCode);
-    Future<void>.delayed(const Duration(milliseconds: 500), () {
-      PeridotBackend.instance.refresh();
-      if (mounted) {
-        setState(() => _optimisticPowerPolicy = null);
-      }
-    });
-  }
-
-  void _applyGovernor(int govCode) {
-    PeridotHaptics.confirm();
-    setState(() => _optimisticGov = govCode);
-
-    const List<String> names = <String>[
-      'Simple On-Demand',
-      'Performance',
-      'Powersave',
-      'Userspace',
-      'OEM Stock',
-    ];
-    final String name = govCode >= 0 && govCode < names.length
-        ? names[govCode]
-        : 'Simple On-Demand';
-
-    _showGlassToast(
-      'DEVFREQ GOVERNOR',
-      'Switched Governor to $name',
-      Icons.tune_rounded,
-      const Color(0xFF67C2FF),
-    );
-
-    PeridotBackend.instance.setGpuDevfreqGovernor(govCode);
-    Future<void>.delayed(const Duration(milliseconds: 500), () {
-      PeridotBackend.instance.refresh();
-      if (mounted) {
-        setState(() => _optimisticGov = null);
       }
     });
   }
@@ -12303,12 +12237,8 @@ class _AdrenoGpuScreenState extends State<AdrenoGpuScreen> {
     setState(() {
       _optimisticProfile = 0;
       _optimisticUncap = false;
-      _optimisticMinFreq = 264;
-      _optimisticMaxFreq = null;
       _optimisticMinFreq = null;
-      _optimisticGov = null;
-      _optimisticGedBoost = false;
-      _optimisticPowerPolicy = 0;
+      _optimisticMaxFreq = null;
     });
 
     _showGlassToast(
@@ -12327,9 +12257,6 @@ class _AdrenoGpuScreenState extends State<AdrenoGpuScreen> {
           _optimisticUncap = null;
           _optimisticMinFreq = null;
           _optimisticMaxFreq = null;
-          _optimisticGov = null;
-          _optimisticGedBoost = null;
-          _optimisticPowerPolicy = null;
         });
       }
     });
@@ -12363,25 +12290,13 @@ class _AdrenoGpuScreenState extends State<AdrenoGpuScreen> {
         final int tableMaxFreq = backend.extendedValue(123) >= 0
             ? backend.extendedValue(123)
             : (rawMaxFreq > 0 ? rawMaxFreq : 1150);
-        final int rawGovCode = backend.extendedValue(49) >= 0
-            ? backend.extendedValue(49)
-            : 0;
-        final int rawGedBoost = backend.extendedValue(50) >= 0
-            ? backend.extendedValue(50)
-            : 0;
         final int thermalState = backend.extendedValue(51);
         final int rawUncap = backend.extendedValue(52);
-        final int rawPowerPolicy = backend.extendedValue(59) >= 0
-            ? backend.extendedValue(59)
-            : 0;
         final bool profileVerified =
             _optimisticProfile == null && backend.extendedValue(13) == 1;
 
         final int activeMinFreq = _optimisticMinFreq ?? rawMinFreq;
         final int activeMaxFreq = _optimisticMaxFreq ?? rawMaxFreq;
-        final int activeGov = _optimisticGov ?? rawGovCode;
-        final bool activeGedBoost = _optimisticGedBoost ?? (rawGedBoost == 1);
-        final int activePowerPolicy = _optimisticPowerPolicy ?? rawPowerPolicy;
         final bool isUncapped = _optimisticUncap ?? (rawUncap == 1);
         final int activePerf =
             _optimisticProfile ??
@@ -12535,16 +12450,10 @@ class _AdrenoGpuScreenState extends State<AdrenoGpuScreen> {
                 ),
                 const SizedBox(height: 12),
 
-                // 3. MEDIATEK GED & GOVERNOR ENGINE
+                // 3. KGSL GOVERNOR INFO
                 _buildGedAndGovernorCard(
                   isDark: isDark,
                   colors: colors,
-                  gedBoost: activeGedBoost,
-                  gedProfileEnabled: isBeast || isGaming,
-                  govCode: activeGov,
-                  powerPolicyCode: activePowerPolicy,
-                  onSelectGov: _applyGovernor,
-                  onSelectPowerPolicy: _applyPowerPolicy,
                 ),
                 const SizedBox(height: 12),
 
@@ -12901,9 +12810,6 @@ class _AdrenoGpuScreenState extends State<AdrenoGpuScreen> {
       int profile,
       int min,
       int max,
-      int gov,
-      bool ged,
-      int powerPolicy,
       String name,
       IconData icon,
       Color accent,
@@ -12952,9 +12858,6 @@ class _AdrenoGpuScreenState extends State<AdrenoGpuScreen> {
                   3,
                   gpuTableMax,
                   gpuTableMax,
-                  1,
-                  true,
-                  1,
                   'Extreme Beast · Fixed ${(gpuTableMax / 1000).toStringAsFixed(2)} GHz',
                   Icons.bolt_rounded,
                   const Color(0xFFFF5252),
@@ -12975,9 +12878,6 @@ class _AdrenoGpuScreenState extends State<AdrenoGpuScreen> {
                   1,
                   gpuTableMin,
                   gpuTableMax,
-                  0,
-                  true,
-                  1,
                   'Gaming Dynamic · Full Range',
                   Icons.sports_esports_rounded,
                   const Color(0xFFFFB84D),
@@ -13002,9 +12902,6 @@ class _AdrenoGpuScreenState extends State<AdrenoGpuScreen> {
                   0,
                   gpuTableMin,
                   gpuTableMax,
-                  4,
-                  false,
-                  0,
                   'Stock Balanced · OEM Control',
                   Icons.balance_rounded,
                   const Color(0xFF67C2FF),
@@ -13025,9 +12922,6 @@ class _AdrenoGpuScreenState extends State<AdrenoGpuScreen> {
                   2,
                   gpuTableMin,
                   saverCap,
-                  2,
-                  false,
-                  0,
                   'Battery Saver · $saverCap MHz Cap',
                   Icons.energy_savings_leaf_rounded,
                   const Color(0xFF41C98A),
@@ -13116,21 +13010,15 @@ class _AdrenoGpuScreenState extends State<AdrenoGpuScreen> {
     );
   }
 
-  // 5. MEDIATEK GED & GOVERNOR ENGINE
+  // 5. KGSL GOVERNOR INFO
   Widget _buildGedAndGovernorCard({
     required bool isDark,
     required ColorScheme colors,
-    required bool gedBoost,
-    required bool gedProfileEnabled,
-    required int govCode,
-    required int powerPolicyCode,
-    required ValueChanged<int> onSelectGov,
-    required ValueChanged<int> onSelectPowerPolicy,
   }) {
     return const SurfaceCard(
       child: _InfoBlock(
         title: 'KGSL · msm-adreno-tz',
-        text: 'The kernel manages GPU DVFS. Profiles set validated frequency bounds. GED and Mali power policies are unavailable on this device.',
+        text: 'The kernel manages GPU DVFS. Profiles set validated frequency bounds; msm-adreno-tz always governs scaling.',
       ),
     );
   }
@@ -13571,17 +13459,21 @@ class _DaemonLogRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Daemon ring entries look like "<unix_ts> <message>".
+    // Daemon ring entries look like "<unix_ts> <message>"; host entries are
+    // "<unix_ts> <source> <level> <message>".
     final int sp = line.indexOf(' ');
     final String body = sp < 0 ? line : line.substring(sp + 1);
+    final bool isHost = body.startsWith('bridge ');
+    final String source = isHost ? 'bridge' : 'daemon';
+    final String message = isHost ? body.substring(7) : body;
     final bool isError =
-        body.contains('FAIL') || body.contains('ERR') || body.contains('REJECT');
+        message.contains('FAIL') || message.contains('ERR') || message.contains('REJECT');
     return _LogRow(
       time: sp < 0 ? '' : _fmtTs(line.substring(0, sp)),
       level: isError ? '✗' : 'i',
       color: isError ? 0xFFEF5350 : 0xFF64B5F6,
-      source: 'daemon',
-      message: body,
+      source: source,
+      message: message,
     );
   }
 

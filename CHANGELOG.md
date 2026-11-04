@@ -1,5 +1,21 @@
 # Peridot Essential changelog
 
+## 1.18.12
+
+Cleanup + observability release. Protocol stays `peridot.5`.
+
+- Remove every Mali/MediaTek residue from the UI: home hero and GPU toast tags
+  now read "ADRENO GPU"; the dead GPU power-policy path (bridge op 22, daemon
+  stub that always errored on KGSL) and the devfreq-governor switcher were
+  deleted; the GPU screen's GED card is now a static KGSL info block.
+- Daemon drops the `13000000.mali` devfreq fallback in OPP index probing.
+- The in-app log now captures every failure layer: the daemon logs failed
+  `SET`/`ACTION` commands (`CMD_FAIL ...`), the host bridge mirrors
+  `PERIDOT_ACTION_FAIL`/`REFRESH_FAIL` into its ring, and per-app profile
+  writes log success/errors to the app log. Broken options are attributable
+  from the Diagnostics → Application & System Logs screen alone.
+- Host log rows are labeled `bridge` instead of `daemon` in the log viewer.
+
 ## 1.18.11
 
 Feature + hardening release. Protocol stays `peridot.5`.

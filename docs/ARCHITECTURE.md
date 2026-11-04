@@ -56,6 +56,16 @@ the scenario; releasing restores the journaled original (or automatic when none
 was captured). Per-app Sconfig touches the persisted `sconfig_override` only,
 never the global control's saved preference.
 
+## Logging
+
+Failures surface in Diagnostics → Application & System Logs from three rings:
+the Flutter `PeridotLogger` (app-side set results, per-app profile writes), the
+host bridge ring (`log_host`: send failures, `ACTION_FAIL`/`REFRESH_FAIL`
+mirrors with daemon error text), and the daemon ring (`log_daemon`: boot
+restore failures, `CMD_FAIL <command> → ERR ...` for every rejected
+SET/ACTION). A broken option can be attributed without adb logcat; the
+`GET logs` command merges daemon and host rings over the existing FFI.
+
 ## Querying the installed module
 
 Run the installed client as root in Termux:
