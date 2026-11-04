@@ -4389,6 +4389,9 @@ class HubsScreen extends StatelessWidget {
         final int rawMaxFreq = backend.extendedValue(48) >= 0
             ? backend.extendedValue(48)
             : 1150;
+        final int activePerf = snapshot.performanceProfile >= 0
+            ? snapshot.performanceProfile
+            : 0;
         final String gpuLabel = liveGpuFreq >= 260
             ? '$liveGpuFreq MHz'
             : (rawMaxFreq > 0 ? '$rawMaxFreq MHz' : '—');
