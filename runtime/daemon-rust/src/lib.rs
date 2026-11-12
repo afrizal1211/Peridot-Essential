@@ -1538,7 +1538,6 @@ fn validate_cpu_frequency_range(policy: i32, min_mhz: i32, max_mhz: i32) -> Resu
 const MI_THERMAL_CPU_LIMITS: &str = "/sys/devices/virtual/thermal/thermal_message/cpu_limits";
 const MI_THERMAL_SCONFIG: &str = "/sys/devices/virtual/thermal/thermal_message/sconfig";
 const MI_THERMAL_NO_LIMITS_MODE: i32 = 6;
-const MTK_POWERHAL_CPU_FREQ: &str = "/proc/powerhal_cpu_ctrl/perfserv_freq";
 
 static CPU_FREQ_APPLY_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
@@ -1548,14 +1547,6 @@ fn cpu_freq_apply_lock() -> &'static Mutex<()> {
 
 fn mi_thermal_cpu_limit_request(policy: i32, max_mhz: i32) -> String {
     format!("cpu{policy} {}", max_mhz as i64 * 1_000)
-}
-
-fn mtk_powerhal_cpu_range_request(policy: i32, min_mhz: i32, max_mhz: i32) -> String {
-    format!(
-        "{policy} {} {}",
-        min_mhz as i64 * 1_000,
-        max_mhz as i64 * 1_000
-    )
 }
 
 fn persisted_cpu_ranges_active(state: &PersistedState) -> bool {
@@ -1902,21 +1893,12 @@ fn clear_gpu_cooling_cap() {
     // Thermal policy remains owned by the kernel and vendor.
 }
 
-fn profile_uses_ged_boost(profile: i32) -> bool {
-    let _ = profile;
-    false
-}
-
 fn write_beast_gpu_constraints() {
     let _ = peridot::apply_profile(3);
 }
 
-// Beast must never disable DVFS while the GPU is still running a previous
-// OPP. This is especially important during boot: the MediaTek power service
-// can publish its stock OPP 40 target after sys.boot_completed, and freezing
-// DVFS at that point leaves the GPU stuck below 1300 MHz until the UI submits
-// another profile command. Keep DVFS enabled while arming OPP 0, and disable
-// it only after the live GED frequency confirms 1300 MHz.
+// Beast profile applies the top KGSL OPP directly. The Adreno driver owns
+// DVFS; there is no freeze/lock dance to coordinate.
 fn arm_or_lock_beast_gpu() -> bool {
     peridot::apply_profile(3).is_ok()
 }
@@ -4169,9 +4151,6 @@ fn restore_persisted_state() {
     if state.gpu_uncap == 1 {
         let _ = set_gpu_uncap(true);
     } else {
-        if !state.gpu_power_policy.is_empty() {
-            let _ = set_gpu_power_policy(&state.gpu_power_policy);
-        }
         if state.gpu_min_freq_mhz > 0 {
             let _ = set_gpu_min_freq(state.gpu_min_freq_mhz);
         }
@@ -4180,9 +4159,6 @@ fn restore_persisted_state() {
         }
         if !state.gpu_governor.is_empty() {
             let _ = set_gpu_governor(&state.gpu_governor);
-        }
-        if state.gpu_ged_boost >= 0 {
-            let _ = set_gpu_ged_boost(state.gpu_ged_boost == 1);
         }
     }
 
@@ -4318,7 +4294,7 @@ fn cpu_frequency_guard() {
 }
 
 fn gaming_dynamic_guard() {
-    // msm-adreno-tz owns load-based DVFS. No GED worker on Qualcomm.
+    // msm-adreno-tz owns load-based DVFS. No separate governor daemon on Qualcomm.
 }
 
 #[cfg(target_os = "android")]
@@ -4828,41 +4804,6 @@ fn compact_zram() -> Result<(), String> {
     Ok(())
 }
 
-// MEDIATEK GED HELPERS (KGSL device: dead code, kept for upstream parity)
-// Ponytail: SM8635 (POCO F6 / Peridot) is a Qualcomm/Adreno device.
-// These stubs exist only because the upstream NeonEssential also supported
-// MediaTek devices. All callers handle Err gracefully; the stubs are dead
-// code on Peridot hardware. Remove when upstream drops MediaTek support.
-
-fn gpu_read_file(primary: &str, fallback: &str) -> Option<String> {
-    fs::read_to_string(primary)
-        .or_else(|_| fs::read_to_string(fallback))
-        .ok()
-}
-
-fn gpu_write_file(primary: &str, fallback: &str, value: &str) -> Result<(), String> {
-    let mut wrote = false;
-    let mut errors = Vec::new();
-
-    for path in [primary, fallback] {
-        if !Path::new(path).exists() {
-            continue;
-        }
-        match service_control::write(path, value) {
-            Ok(()) => wrote = true,
-            Err(error) => errors.push(format!("{path}: {error}")),
-        }
-    }
-
-    if wrote {
-        Ok(())
-    } else if errors.is_empty() {
-        Err(format!("GPU control node missing: {primary} or {fallback}"))
-    } else {
-        Err(format!("GPU control write failed: {}", errors.join("; ")))
-    }
-}
-
 fn gpu_read_raw(path: &str) -> Option<String> {
     use std::io::Read;
     let mut f = fs::File::open(path).ok()?;
@@ -4892,30 +4833,6 @@ fn gpu_get_loading() -> i32 {
     }
 }
 
-fn gpu_get_cur_opp_index() -> i32 {
-    gpu_read_raw("/sys/kernel/ged/hal/current_freqency")
-        .and_then(|value| {
-            value
-                .split_whitespace()
-                .next()
-                .and_then(|part| part.parse::<i32>().ok())
-        })
-        .unwrap_or(40)
-}
-
-fn gpu_get_lowest_opp_index() -> i32 {
-    gpu_read_raw("/sys/kernel/ged/hal/total_gpu_freq_level_count")
-        .and_then(|value| {
-            value
-                .split_whitespace()
-                .next()
-                .and_then(|part| part.parse::<i32>().ok())
-        })
-        .map(|count| count.saturating_sub(1))
-        .unwrap_or(40)
-        .clamp(0, 255)
-}
-
 fn gaming_dynamic_target_opp(load: i32, current_opp: i32, lowest_opp: i32) -> i32 {
     let load = load.clamp(0, 100);
     let current_opp = current_opp.clamp(0, lowest_opp);
@@ -4939,23 +4856,6 @@ fn gaming_dynamic_target_opp(load: i32, current_opp: i32, lowest_opp: i32) -> i3
     }
 }
 
-fn parse_ged_current_frequency_mhz(raw: &str) -> Option<i32> {
-    let value = raw
-        .split_whitespace()
-        .filter_map(|part| part.parse::<i64>().ok())
-        .next_back()?;
-
-    if value <= 0 {
-        None
-    } else if value > 10_000_000 {
-        Some((value / 1_000_000) as i32)
-    } else if value > 1_300 {
-        Some((value / 1_000) as i32)
-    } else {
-        Some(value as i32)
-    }
-}
-
 fn gpu_get_cur_freq_mhz() -> i32 {
     peridot::read("cur_freq")
         .or_else(|| peridot::root_read("gpuclk"))
@@ -4974,25 +4874,6 @@ fn gpu_get_max_freq_mhz() -> i32 {
 
 fn gpu_get_governor() -> String {
     gpu_governor()
-}
-
-fn gpu_get_ged_master_flag() -> i32 {
-    -1
-}
-
-fn gpu_flag(path: &str) -> i32 {
-    fs::read_to_string(path)
-        .ok()
-        .and_then(|s| s.trim().parse().ok())
-        .unwrap_or(-1)
-}
-
-fn gpu_get_ged_boost() -> i32 {
-    -1
-}
-
-fn gpu_boost_pipeline_matches(enabled: bool) -> bool {
-    !enabled
 }
 
 fn gpu_get_thermal_state() -> i32 {
@@ -5035,22 +4916,8 @@ fn set_gpu_max_freq(mhz: i32) -> Result<(), String> {
     })
 }
 
-fn set_gpu_ged_boost(enable: bool) -> Result<(), String> {
-    let _ = enable;
-    Err("GED is MediaTek-only; Peridot uses KGSL".into())
-}
-
 fn set_gpu_uncap(enable: bool) -> Result<(), String> {
     apply_performance_profile(if enable { 3 } else { 0 })
-}
-
-fn gpu_get_power_policy() -> String {
-    "kernel-managed".into()
-}
-
-fn set_gpu_power_policy(policy: &str) -> Result<(), String> {
-    let _ = policy;
-    Err("GPU power policy control is unavailable on KGSL".into())
 }
 
 fn snapshot_persistence_fields() -> Vec<String> {
@@ -5192,18 +5059,11 @@ fn snapshot_persistence_fields() -> Vec<String> {
         format!("gpu_table_min={gpu_table_min}"),
         format!("gpu_table_max={gpu_table_max}"),
         format!("gpu_gov={}", gpu_get_governor()),
-        format!("gpu_ged_boost={}", gpu_get_ged_boost()),
+        format!("gpu_ged_boost=0"),
         format!("gpu_thermal_state={}", gpu_get_thermal_state()),
         format!("gpu_uncap_active={}", gpu_get_uncap_active()),
-        format!(
-            "gpu_power_policy={}",
-            if gpu_get_power_policy() == "always_on" {
-                1
-            } else {
-                0
-            }
-        ),
-        format!("gpu_power_policy_str={}", gpu_get_power_policy()),
+        format!("gpu_power_policy=0"),
+        format!("gpu_power_policy_str=kernel-managed"),
         format!("cpu_min0={}", state.cpu_min_freq0),
         format!("cpu_max0={}", state.cpu_max_freq0),
         format!("cpu_min3={}", state.cpu_min_freq3),
@@ -6093,12 +5953,13 @@ fn handle_enabled_command(line: &str) -> String {
     } else if let Some(arg) = cmd.strip_prefix("SET gpu.governor ") {
         set_gpu_governor(arg.trim())
     } else if let Some(arg) = cmd.strip_prefix("SET gpu.ged_boost ") {
-        arg.trim()
+        let _ = arg.trim()
             .parse::<i32>()
-            .map_err(|_| "bad ged boost flag".to_string())
-            .and_then(|v| set_gpu_ged_boost(v == 1))
+            .map_err(|_| "bad boost flag".to_string());
+        Err("GPU boost control unavailable on this device".to_string())
     } else if let Some(arg) = cmd.strip_prefix("SET gpu.power_policy ") {
-        set_gpu_power_policy(arg.trim())
+        let _ = arg.trim();
+        Err("GPU power policy unavailable on this device".to_string())
     } else if let Some(arg) = cmd.strip_prefix("SET gpu.uncap ") {
         arg.trim()
             .parse::<i32>()
@@ -6332,12 +6193,12 @@ mod tests {
         AppUidPolicy, MI_THERMAL_NO_LIMITS_MODE, PersistedState, classify_touch_panel_version,
         client_uid_allowed, cpu_frequency_drift_status, find_touch_thp_config_offset,
         gaming_dynamic_target_opp, mi_thermal_cpu_limit_request,
-        migrate_legacy_gpu_profile_cpu_state, mtk_powerhal_cpu_range_request,
+        migrate_legacy_gpu_profile_cpu_state,
         normalize_charging_profile, normalize_mi_thermal_config_mode, normalize_reported_power_w,
         package_app_id_from_packages_list, parse_cpu_frequency_table, parse_cpu_time_in_state,
-        parse_ged_current_frequency_mhz, persisted_cpu_ranges_active, profile_uses_ged_boost,
-        scaled_display_density, tcp_client_uid_from_table, touch_hal_profile_sequence,
-        valid_charging_profile, valid_mi_thermal_config_mode, validate_cpu_frequency_range_against,
+        persisted_cpu_ranges_active, scaled_display_density, tcp_client_uid_from_table,
+        touch_hal_profile_sequence, valid_charging_profile, valid_mi_thermal_config_mode,
+        validate_cpu_frequency_range_against,
     };
 
     fn put_u16(bytes: &mut [u8], offset: usize, value: u16) {
@@ -6468,10 +6329,6 @@ io.github.davvv98.peridotessential 10228 0 /data/user/0/io.github.davvv98.perido
         assert_eq!(mi_thermal_cpu_limit_request(0, 2100), "cpu0 2100000");
         assert_eq!(mi_thermal_cpu_limit_request(4, 3000), "cpu4 3000000");
         assert_eq!(mi_thermal_cpu_limit_request(7, 3250), "cpu7 3250000");
-        assert_eq!(
-            mtk_powerhal_cpu_range_request(4, 400, 3000),
-            "4 400000 3000000"
-        );
     }
 
     #[test]
@@ -6530,19 +6387,6 @@ io.github.davvv98.peridotessential 10228 0 /data/user/0/io.github.davvv98.perido
     }
 
     #[test]
-    fn parses_peridot_ged_current_opp() {
-        assert_eq!(parse_ged_current_frequency_mhz("40 260000\n"), Some(260));
-        assert_eq!(parse_ged_current_frequency_mhz("0 1300000\n"), Some(1300));
-    }
-
-    #[test]
-    fn accepts_single_value_frequency_units() {
-        assert_eq!(parse_ged_current_frequency_mhz("260000000"), Some(260));
-        assert_eq!(parse_ged_current_frequency_mhz("26"), Some(26));
-        assert_eq!(parse_ged_current_frequency_mhz("unavailable"), None);
-    }
-
-    #[test]
     fn gaming_dynamic_policy_uses_the_full_opp_table() {
         assert_eq!(gaming_dynamic_target_opp(100, 40, 40), 0);
         assert_eq!(gaming_dynamic_target_opp(75, 30, 40), 22);
@@ -6550,13 +6394,6 @@ io.github.davvv98.peridotessential 10228 0 /data/user/0/io.github.davvv98.perido
         assert_eq!(gaming_dynamic_target_opp(0, 0, 40), 40);
     }
 
-    #[test]
-    fn peridot_profiles_never_request_ged_boost() {
-        assert!(!profile_uses_ged_boost(0));
-        assert!(!profile_uses_ged_boost(1));
-        assert!(!profile_uses_ged_boost(2));
-        assert!(!profile_uses_ged_boost(3));
-    }
 
     #[test]
     fn validates_xiaomi_thermal_config_mode_range() {

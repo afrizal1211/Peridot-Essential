@@ -49,7 +49,7 @@ def check_gpu_health():
     errors = []
     for line in raw.splitlines():
         stamp = re.match(r'\[\s*([0-9.]+)\]', line)
-        if stamp and float(stamp.group(1)) >= gpu_start and 'mali' in line.lower():
+        if stamp and float(stamp.group(1)) >= gpu_start and re.search(r'adreno|kgsl', line, re.I):
             if re.search(r'fence.*timeout|STATUS_UPDATE.*timed out|Resetting GPU|Reset complete', line, re.I):
                 errors.append(line)
     assert not errors, 'New GPU driver fault: ' + '\n'.join(errors)
@@ -101,7 +101,7 @@ try:
                         live.shell('input swipe 650 1900 650 500 450')
                         time.sleep(1)
                         check_gpu_health()
-                    print('GPU READBACK: ' + live.shell('cat /sys/class/misc/mali0/device/devfreq/13000000.mali/min_freq; cat /sys/class/misc/mali0/device/devfreq/13000000.mali/max_freq; cat /sys/class/misc/mali0/device/devfreq/13000000.mali/governor; cat /sys/class/misc/mali0/device/power_policy', root=True), flush=True)
+                    print('GPU READBACK: ' + live.shell('cat /sys/class/kgsl/kgsl-3d0/min_freq; cat /sys/class/kgsl/kgsl-3d0/max_freq; cat /sys/class/kgsl/kgsl-3d0/devfreq/governor', root=True), flush=True)
             if 'cores' in controls:
                 assert live.shell('cat /sys/devices/system/cpu/online', root=True) == '0,2-7'
             if 'cpu' in controls:

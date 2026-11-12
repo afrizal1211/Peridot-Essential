@@ -117,7 +117,7 @@ if grep 'package_service' "$PERIDOT_PRODUCT_PRIVATE/peridot_daemon.te" | grep -F
     exit 1
 fi
 
-grep -Fq 'type sysfs_peridot_mali_devfreq, fs_type, sysfs_type;' "$PERIDOT_VENDOR_POLICY"
+grep -Fq 'type sysfs_peridot_gpu_devfreq, fs_type, sysfs_type;' "$PERIDOT_VENDOR_POLICY"
 grep -Fq 'type sysfs_peridot_touch, fs_type, sysfs_type;' "$PERIDOT_VENDOR_POLICY"
 grep -Fq 'allow peridot_daemon sysfs_battery_supply:file rw_file_perms;' "$PERIDOT_VENDOR_POLICY"
 grep -Fq 'netlink_kobject_uevent_socket' "$PERIDOT_PRODUCT_PRIVATE/peridot_daemon.te"
@@ -131,7 +131,7 @@ grep -Fq 'allow peridot_daemon hal_touchfeature_xiaomi_service:service_manager f
 grep -Fq 'allow peridot_daemon hal_touchfeature_xiaomi_default:process ptrace;' "$PERIDOT_VENDOR_POLICY"
 grep -Fq 'allow peridot_daemon hal_touchfeature_xiaomi_default:dir search;' "$PERIDOT_VENDOR_POLICY"
 grep -Fq 'typeattribute peridot_daemon peridot_native_touch_access;' "$PERIDOT_PRODUCT_PRIVATE/peridot_daemon.te"
-grep -Fq '/devices/platform/soc/13000000.mali/devfreq/13000000.mali' "$PERIDOT_GENFS"
+grep -Fq '/sys/class/kgsl/kgsl-3d0/devfreq' "$PERIDOT_GENFS"
 grep -Fq '/devices/platform/goodix_ts.0' "$PERIDOT_GENFS"
 
 grep -Fq 'user root' "$PERIDOT_AOSP/peridot_daemon.rc"

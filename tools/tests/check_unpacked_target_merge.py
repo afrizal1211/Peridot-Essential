@@ -49,7 +49,7 @@ assert len((merged / 'REMOVE-AFTER-VALIDATION.txt').read_text().splitlines()) ==
 assert (merged / 'validation/file-contexts.log').is_file()
 # Missing target types are diagnosed, never replaced by generic/broad grants.
 labels = args.output / 'missing-labels.json'
-labels.write_text(json.dumps({'sysfs_ged': 'nonexistent_target_label'}))
+labels.write_text(json.dumps({'sysfs_gpu': 'nonexistent_target_label'}))
 bad_command = command[:]
 bad_command[bad_command.index('--output') + 1] = str(args.output / 'rejected')
 result = subprocess.run(bad_command + ['--labels', str(labels)], capture_output=True, text=True)

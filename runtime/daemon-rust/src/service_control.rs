@@ -264,7 +264,6 @@ fn reversible_path(path: &Path) -> bool {
             )
         )
         && raw.as_ref() != super::MI_THERMAL_CPU_LIMITS
-        && raw.as_ref() != super::MTK_POWERHAL_CPU_FREQ
 }
 
 pub(super) fn normalized_original(path: &Path, raw: &str) -> String {
@@ -329,13 +328,6 @@ mod tests {
             ),
             "coarse_demand"
         );
-        assert_eq!(
-            normalized_original(
-                Path::new("/sys/kernel/ged/hal/custom_boost_gpu_freq"),
-                "40\n123:pid:1 value:40"
-            ),
-            "40"
-        );
     }
     #[test]
     fn never_journals_one_shot_or_write_only_controls() {
@@ -343,12 +335,8 @@ mod tests {
             "/sys/block/zram0/reset",
             "/sys/block/zram0/compact",
             super::super::MI_THERMAL_CPU_LIMITS,
-            super::super::MTK_POWERHAL_CPU_FREQ,
         ] {
             assert!(!reversible_path(Path::new(path)));
         }
-        assert!(reversible_path(Path::new(
-            "/sys/module/ged/parameters/gpu_dvfs_enable"
-        )));
     }
 }

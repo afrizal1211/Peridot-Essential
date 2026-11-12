@@ -2,16 +2,13 @@
 # exact vendor build used by the ROM before shipping; OEM ports can rename
 # individual types while exposing the same kernel nodes.
 
-# CPU, UFS, GPU, GED, thermal, charging, touch, and ZRAM controls.
+# CPU, UFS, GPU, thermal, charging, touch, and ZRAM controls.
 allow peridot_daemon sysfs_devices_system_cpu:dir search;
 allow peridot_daemon sysfs_devices_system_cpu:file rw_file_perms;
 allow peridot_daemon sysfs_devices_block:dir search;
 allow peridot_daemon sysfs_devices_block:file rw_file_perms;
 allow peridot_daemon sysfs_memory:dir search;
 allow peridot_daemon sysfs_memory:file rw_file_perms;
-allow peridot_daemon sysfs_ged:dir search;
-allow peridot_daemon sysfs_ged:file rw_file_perms;
-allow peridot_daemon sysfs_mali_power_policy:file rw_file_perms;
 allow peridot_daemon sysfs_therm:file rw_file_perms;
 # Battery/USB class links resolve through battery-manager/power_supply.
 # Traverse the parent only; do not grant access to batteryinfo files.
@@ -54,8 +51,8 @@ allow mtk_hal_power sysfs_peridot_subsystem:file rw_file_perms;
 allow mtk_hal_power sysfs_peridot_subsystem_floor:file rw_file_perms;
 
 allow peridot_daemon sysfs:dir search;
-allow peridot_daemon sysfs_peridot_mali_devfreq:dir r_dir_perms;
-allow peridot_daemon sysfs_peridot_mali_devfreq:file rw_file_perms;
+allow peridot_daemon sysfs_peridot_gpu_devfreq:dir r_dir_perms;
+allow peridot_daemon sysfs_peridot_gpu_devfreq:file rw_file_perms;
 allow peridot_daemon sysfs_peridot_touch:dir r_dir_perms;
 allow peridot_daemon sysfs_peridot_touch:file rw_file_perms;
 

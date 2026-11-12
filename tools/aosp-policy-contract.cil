@@ -15,9 +15,9 @@
 (typeattributeset data_file_type (peridot_daemon_data_release_probe))
 (typeattributeset core_data_file_type (peridot_daemon_data_release_probe))
 
-(type peridot_mali_devfreq_release_probe)
-(typeattributeset fs_type (peridot_mali_devfreq_release_probe))
-(typeattributeset sysfs_type (peridot_mali_devfreq_release_probe))
+(type peridot_gpu_devfreq_release_probe)
+(typeattributeset fs_type (peridot_gpu_devfreq_release_probe))
+(typeattributeset sysfs_type (peridot_gpu_devfreq_release_probe))
 
 (type peridot_battery_supply_release_probe)
 (typeattributeset fs_type (peridot_battery_supply_release_probe))
@@ -69,8 +69,8 @@
     (unix_stream_socket (connectto)))
 
 (allow peridot_daemon_release_probe sysfs (dir (search)))
-(allow peridot_daemon_release_probe peridot_mali_devfreq_release_probe (dir (getattr search open read)))
-(allow peridot_daemon_release_probe peridot_mali_devfreq_release_probe (file (getattr open read write ioctl lock map)))
+(allow peridot_daemon_release_probe peridot_gpu_devfreq_release_probe (dir (getattr search open read)))
+(allow peridot_daemon_release_probe peridot_gpu_devfreq_release_probe (file (getattr open read write ioctl lock map)))
 (allow peridot_daemon_release_probe peridot_battery_supply_release_probe (file (getattr open read write ioctl lock map)))
 
 (allow peridot_daemon_release_probe peridot_sysfs_rw_release_probe
