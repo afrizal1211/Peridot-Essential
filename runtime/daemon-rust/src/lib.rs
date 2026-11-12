@@ -5953,7 +5953,8 @@ fn handle_enabled_command(line: &str) -> String {
     } else if let Some(arg) = cmd.strip_prefix("SET gpu.governor ") {
         set_gpu_governor(arg.trim())
     } else if let Some(arg) = cmd.strip_prefix("SET gpu.ged_boost ") {
-        let _ = arg.trim()
+        let _ = arg
+            .trim()
             .parse::<i32>()
             .map_err(|_| "bad boost flag".to_string());
         Err("GPU boost control unavailable on this device".to_string())
@@ -6193,8 +6194,8 @@ mod tests {
         AppUidPolicy, MI_THERMAL_NO_LIMITS_MODE, PersistedState, classify_touch_panel_version,
         client_uid_allowed, cpu_frequency_drift_status, find_touch_thp_config_offset,
         gaming_dynamic_target_opp, mi_thermal_cpu_limit_request,
-        migrate_legacy_gpu_profile_cpu_state,
-        normalize_charging_profile, normalize_mi_thermal_config_mode, normalize_reported_power_w,
+        migrate_legacy_gpu_profile_cpu_state, normalize_charging_profile,
+        normalize_mi_thermal_config_mode, normalize_reported_power_w,
         package_app_id_from_packages_list, parse_cpu_frequency_table, parse_cpu_time_in_state,
         persisted_cpu_ranges_active, scaled_display_density, tcp_client_uid_from_table,
         touch_hal_profile_sequence, valid_charging_profile, valid_mi_thermal_config_mode,
@@ -6393,7 +6394,6 @@ io.github.davvv98.peridotessential 10228 0 /data/user/0/io.github.davvv98.perido
         assert_eq!(gaming_dynamic_target_opp(60, 30, 40), 26);
         assert_eq!(gaming_dynamic_target_opp(0, 0, 40), 40);
     }
-
 
     #[test]
     fn validates_xiaomi_thermal_config_mode_range() {
