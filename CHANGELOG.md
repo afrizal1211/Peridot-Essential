@@ -1,5 +1,35 @@
 # Peridot Essential changelog
 
+## 1.18.13
+
+Bug-fix + upstream-cleanup release. Protocol stays `peridot.5`.
+
+- Daemon node paths audited against the POCO F6 / SM8635 hardware contract;
+  no MediaTek sysfs remains in the daemon (HTPR/touch probe paths were already
+  runtime-gated and stay as fallbacks).
+- All upstream onyx residue renamed to peridot (BoardConfig, essential.mk,
+  daemon.rc, product sepolicy .te files, unpacked CIL policy), fixing the
+  broken `Android.bp` init_rc and three tool-script references that pointed
+  at files that did not exist.
+- Vendor sepolicy purged of MediaTek leftovers: the dead Mali devfreq type
+  and dvfsrc devfreq grants are gone, OEM power grants moved to
+  `hal_power_default`, genfs labels now point at the QCOM `bus_dcvs` rails
+  (ddr/l3/llcc/ddrqos) and the real UFS node `1d84000.ufshc` instead of the
+  upstream MTK `112b0000.ufshci`. A regression test pins the absence of
+  dvfsrc/mtk/mali residue.
+- `peridot.rs` backend header no longer says POCO F7.
+- In-app log viewer: the merged daemon/host reply no longer silently
+  truncates to zero daemon lines (buffer now grows to the 1 MiB native
+  ceiling), non-ASCII UTF-8 decodes with `allowMalformed`, and a `|` inside
+  a log message no longer splits its entry (record separator escaped
+  end-to-end, with escape-aware splitting on both the host and Dart sides).
+- Log export surfaces its result: the native schedule call is checked and a
+  floating SnackBar confirms the share sheet or reports a failure instead of
+  a silent no-op. Log loading moved from a fixed 250 ms delay to a post-frame
+  callback.
+- CI lint gate repaired (main was red): clippy `-D warnings` failures
+  (`needless_range_loop`, `manual_is_multiple_of`, `useless_format`) fixed.
+
 ## 1.18.12
 
 Cleanup + observability release. Protocol stays `peridot.5`.
