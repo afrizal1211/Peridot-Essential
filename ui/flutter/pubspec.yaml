@@ -1,7 +1,7 @@
 name: peridot_essential_ui
 description: Peridot Essential zero-DEX Flutter AOT interface.
 publish_to: "none"
-version: 1.18.13+11813
+version: 1.18.14+11814
 
 environment:
   sdk: ">=3.12.0 <4.0.0"

@@ -1,5 +1,16 @@
 # Peridot Essential changelog
 
+## 1.18.14
+
+Bug-fix release. Protocol stays `peridot.5`.
+
+- Display Studio now reports DisplayFeature HAL rejections instead of silently
+  pretending success: `set_display_feature()` previously discarded the int32
+  return code in the reply parcel, so a rejected case/mode pair was persisted
+  and shown as applied while the screen never changed. Non-zero returns now
+  fail the write (ACK=0, `ERR` to the app, nothing persisted), matching how
+  the touch HAL path already behaved.
+
 ## 1.18.13
 
 Bug-fix + upstream-cleanup release. Protocol stays `peridot.5`.
