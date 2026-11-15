@@ -1,4 +1,4 @@
-//! POCO F7 KGSL backend. Frequencies are validated against the live OPP table.
+//! POCO F6 (peridot) KGSL backend. Frequencies are validated against the live OPP table.
 use super::{read_trimmed, service_control};
 const GPU: &str = "/sys/class/kgsl/kgsl-3d0";
 pub(super) fn root_read(node: &str) -> Option<String> {

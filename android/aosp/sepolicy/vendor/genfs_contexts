@@ -5,10 +5,15 @@ genfscon sysfs "/sys/class/kgsl/kgsl-3d0" u:object_r:sysfs_peridot_gpu_devfreq:s
 # Goodix fallback used when a port omits Xiaomi's TouchFeature service.
 genfscon sysfs /devices/platform/goodix_ts.0 u:object_r:sysfs_peridot_touch:s0
 
-# Memory/storage: metadata is read-only, only min_freq/max_freq are writable.
-# Keep the ROM's sysfs_dvfsrc_devfreq parent label and PowerHAL ownership.
-genfscon sysfs /devices/platform/soc/1c00f000.dvfsrc/mtk-dvfsrc-devfreq/devfreq/mtk-dvfsrc-devfreq/min_freq u:object_r:sysfs_peridot_subsystem_floor:s0
-genfscon sysfs /devices/platform/soc/1c00f000.dvfsrc/mtk-dvfsrc-devfreq/devfreq/mtk-dvfsrc-devfreq/max_freq u:object_r:sysfs_peridot_subsystem_floor:s0
-genfscon sysfs /devices/platform/soc/112b0000.ufshci/devfreq/112b0000.ufshci u:object_r:sysfs_peridot_subsystem:s0
-genfscon sysfs /devices/platform/soc/112b0000.ufshci/devfreq/112b0000.ufshci/min_freq u:object_r:sysfs_peridot_subsystem_floor:s0
-genfscon sysfs /devices/platform/soc/112b0000.ufshci/devfreq/112b0000.ufshci/max_freq u:object_r:sysfs_peridot_subsystem_floor:s0
+# Memory: QCOM DCVS (/sys/devices/system/cpu/bus_dcvs). Parent tree stays
+# read-only metadata; each rail's boost_freq floor request is the writable leaf.
+genfscon sysfs /devices/system/cpu/bus_dcvs u:object_r:sysfs_peridot_subsystem:s0
+genfscon sysfs /devices/system/cpu/bus_dcvs/ddr/boost_freq u:object_r:sysfs_peridot_subsystem_floor:s0
+genfscon sysfs /devices/system/cpu/bus_dcvs/l3/boost_freq u:object_r:sysfs_peridot_subsystem_floor:s0
+genfscon sysfs /devices/system/cpu/bus_dcvs/llcc/boost_freq u:object_r:sysfs_peridot_subsystem_floor:s0
+genfscon sysfs /devices/system/cpu/bus_dcvs/ddrqos/boost_freq u:object_r:sysfs_peridot_subsystem_floor:s0
+# Storage: peridot's UFS controller is ufshc@1d84000. Metadata is read-only,
+# min_freq/max_freq are the writable floor/ceiling requests.
+genfscon sysfs /devices/platform/soc/1d84000.ufshc/devfreq/1d84000.ufshc u:object_r:sysfs_peridot_subsystem:s0
+genfscon sysfs /devices/platform/soc/1d84000.ufshc/devfreq/1d84000.ufshc/min_freq u:object_r:sysfs_peridot_subsystem_floor:s0
+genfscon sysfs /devices/platform/soc/1d84000.ufshc/devfreq/1d84000.ufshc/max_freq u:object_r:sysfs_peridot_subsystem_floor:s0

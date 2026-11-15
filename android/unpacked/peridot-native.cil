@@ -125,21 +125,24 @@
 (genfscon sysfs "/sys/class/kgsl/kgsl-3d0" (u object_r sysfs_peridot_gpu_devfreq ((s0) (s0))))
 (genfscon sysfs "/devices/platform/goodix_ts.0" (u object_r sysfs_peridot_touch ((s0) (s0))))
 
-; Subsystem metadata is read-only; requests are confined to min_freq/max_freq.
+; Subsystem metadata is read-only; writable requests are the DCVS boost_freq
+; floor votes and the UFS devfreq min_freq/max_freq bounds.
 (allow peridot_daemon sysfs_peridot_subsystem (dir (search getattr open read)))
 (allow peridot_daemon sysfs_peridot_subsystem (file (read getattr open)))
 (allow peridot_daemon sysfs_peridot_subsystem_floor (file (read write getattr open)))
-; Preserve the target ROM's RAM parent label and existing controller access.
-(allow peridot_daemon sysfs_dvfsrc_devfreq (dir (search getattr open read)))
-(allow peridot_daemon sysfs_dvfsrc_devfreq (file (read getattr open)))
-(allow mtk_hal_power sysfs_peridot_subsystem (dir (ioctl read getattr lock open watch watch_reads search)))
-(allow mtk_hal_power sysfs_peridot_subsystem (file (ioctl read write getattr lock append map open watch watch_reads)))
-(allow mtk_hal_power sysfs_peridot_subsystem_floor (file (ioctl read write getattr lock append map open watch watch_reads)))
-(genfscon sysfs "/devices/platform/soc/1c00f000.dvfsrc/mtk-dvfsrc-devfreq/devfreq/mtk-dvfsrc-devfreq/min_freq" (u object_r sysfs_peridot_subsystem_floor ((s0) (s0))))
-(genfscon sysfs "/devices/platform/soc/1c00f000.dvfsrc/mtk-dvfsrc-devfreq/devfreq/mtk-dvfsrc-devfreq/max_freq" (u object_r sysfs_peridot_subsystem_floor ((s0) (s0))))
-(genfscon sysfs "/devices/platform/soc/112b0000.ufshci/devfreq/112b0000.ufshci" (u object_r sysfs_peridot_subsystem ((s0) (s0))))
-(genfscon sysfs "/devices/platform/soc/112b0000.ufshci/devfreq/112b0000.ufshci/min_freq" (u object_r sysfs_peridot_subsystem_floor ((s0) (s0))))
-(genfscon sysfs "/devices/platform/soc/112b0000.ufshci/devfreq/112b0000.ufshci/max_freq" (u object_r sysfs_peridot_subsystem_floor ((s0) (s0))))
+; Preserve the ROM PowerHAL's access to the newly labeled request files.
+; Verify hal_power_default is the power HAL domain in the target vendor build.
+(allow hal_power_default sysfs_peridot_subsystem (dir (ioctl read getattr lock open watch watch_reads search)))
+(allow hal_power_default sysfs_peridot_subsystem (file (ioctl read write getattr lock append map open watch watch_reads)))
+(allow hal_power_default sysfs_peridot_subsystem_floor (file (ioctl read write getattr lock append map open watch watch_reads)))
+(genfscon sysfs "/devices/system/cpu/bus_dcvs" (u object_r sysfs_peridot_subsystem ((s0) (s0))))
+(genfscon sysfs "/devices/system/cpu/bus_dcvs/ddr/boost_freq" (u object_r sysfs_peridot_subsystem_floor ((s0) (s0))))
+(genfscon sysfs "/devices/system/cpu/bus_dcvs/l3/boost_freq" (u object_r sysfs_peridot_subsystem_floor ((s0) (s0))))
+(genfscon sysfs "/devices/system/cpu/bus_dcvs/llcc/boost_freq" (u object_r sysfs_peridot_subsystem_floor ((s0) (s0))))
+(genfscon sysfs "/devices/system/cpu/bus_dcvs/ddrqos/boost_freq" (u object_r sysfs_peridot_subsystem_floor ((s0) (s0))))
+(genfscon sysfs "/devices/platform/soc/1d84000.ufshc/devfreq/1d84000.ufshc" (u object_r sysfs_peridot_subsystem ((s0) (s0))))
+(genfscon sysfs "/devices/platform/soc/1d84000.ufshc/devfreq/1d84000.ufshc/min_freq" (u object_r sysfs_peridot_subsystem_floor ((s0) (s0))))
+(genfscon sysfs "/devices/platform/soc/1d84000.ufshc/devfreq/1d84000.ufshc/max_freq" (u object_r sysfs_peridot_subsystem_floor ((s0) (s0))))
 
 ; Xiaomi vendor services and narrowly scoped native THP timing access.
 (allow peridot_daemon vendor_hal_displayfeature_xiaomi_service (service_manager (find)))

@@ -33,7 +33,6 @@ allow peridot_daemon swap_block_device:blk_file rw_file_perms;
 
 # These Peridot nodes are generic sysfs in the stock vendor image. Relabel only
 # their exact subtrees so the coredomain never receives generic sysfs access.
-type sysfs_peridot_mali_devfreq, fs_type, sysfs_type;
 type sysfs_peridot_touch, fs_type, sysfs_type;
 type sysfs_peridot_subsystem, fs_type, sysfs_type;
 type sysfs_peridot_subsystem_floor, fs_type, sysfs_type;
@@ -41,14 +40,14 @@ allow peridot_daemon sysfs_peridot_subsystem:dir r_dir_perms;
 allow peridot_daemon sysfs_peridot_subsystem:file r_file_perms;
 # Only supported devfreq floor requests are writable, not force/voltage nodes.
 allow peridot_daemon sysfs_peridot_subsystem_floor:file rw_file_perms;
-# Existing RAM devfreq metadata label must not be replaced or duplicated.
-allow peridot_daemon sysfs_dvfsrc_devfreq:dir r_dir_perms;
-allow peridot_daemon sysfs_dvfsrc_devfreq:file r_file_perms;
-# Preserve OEM PowerHAL access on the newly labeled request files/UFS subtree.
+# The QCOM DCVS parent tree (/sys/devices/system/cpu/bus_dcvs) is relabeled
+# sysfs_peridot_subsystem above; only each rail's boost_freq is writable.
+# Preserve PowerHAL access on the newly labeled request files/UFS subtree.
 # These grants belong to the existing controller, not to the Peridot app.
-allow mtk_hal_power sysfs_peridot_subsystem:dir r_dir_perms;
-allow mtk_hal_power sysfs_peridot_subsystem:file rw_file_perms;
-allow mtk_hal_power sysfs_peridot_subsystem_floor:file rw_file_perms;
+# Verify hal_power_default is the power HAL domain in the target vendor build.
+allow hal_power_default sysfs_peridot_subsystem:dir r_dir_perms;
+allow hal_power_default sysfs_peridot_subsystem:file rw_file_perms;
+allow hal_power_default sysfs_peridot_subsystem_floor:file rw_file_perms;
 
 allow peridot_daemon sysfs:dir search;
 allow peridot_daemon sysfs_peridot_gpu_devfreq:dir r_dir_perms;

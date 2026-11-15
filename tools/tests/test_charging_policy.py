@@ -27,13 +27,51 @@ class ChargingPolicyTests(unittest.TestCase):
         self.assertNotIn("'Unexpected DEX'", source)
 
     def test_ram_parent_label_is_preserved(self):
-        ram = '/devices/platform/soc/1c00f000.dvfsrc/mtk-dvfsrc-devfreq/devfreq/mtk-dvfsrc-devfreq'
         source = (ROOT / 'android/unpacked/peridot-native.cil').read_text()
-        self.assertNotIn(f'(genfscon sysfs "{ram}" ', source)
-        self.assertIn(f'(genfscon sysfs "{ram}/min_freq" ', source)
-        self.assertIn(f'(genfscon sysfs "{ram}/max_freq" ', source)
-        self.assertIn('(allow peridot_daemon sysfs_dvfsrc_devfreq (file (read getattr open)))', source)
-        self.assertIn('(allow mtk_hal_power sysfs_peridot_subsystem_floor (file ', source)
+        # Upstream MediaTek policy must not survive the Peridot port.
+        self.assertNotIn('dvfsrc', source)
+        self.assertNotIn('mtk_hal_power', source)
+        self.assertNotIn('112b0000.ufshci', source)
+        # QCOM DCVS: the parent tree stays read-only metadata and each rail's
+        # boost_freq floor request is the writable labeled leaf.
+        self.assertIn(
+            '(genfscon sysfs "/devices/system/cpu/bus_dcvs" '
+            '(u object_r sysfs_peridot_subsystem ((s0) (s0))))',
+            source)
+        for rail in ('ddr', 'l3', 'llcc', 'ddrqos'):
+            self.assertIn(
+                '(genfscon sysfs "/devices/system/cpu/bus_dcvs/'
+                f'{rail}/boost_freq" '
+                '(u object_r sysfs_peridot_subsystem_floor ((s0) (s0))))',
+                source)
+        self.assertIn(
+            '(allow peridot_daemon sysfs_peridot_subsystem '
+            '(file (read getattr open)))',
+            source)
+        self.assertIn(
+            '(allow hal_power_default sysfs_peridot_subsystem_floor (file ',
+            source)
+        # UFS devfreq keeps peridot's controller address, not upstream's.
+        for node in ('min_freq', 'max_freq'):
+            self.assertIn(
+                '(genfscon sysfs '
+                f'"/devices/platform/soc/1d84000.ufshc/devfreq/1d84000.ufshc/{node}" ',
+                source)
+
+    def test_upstream_mediatek_residue_is_absent(self):
+        sources = (
+            'android/aosp/sepolicy/vendor/peridot_daemon.te',
+            'android/aosp/sepolicy/vendor/genfs_contexts',
+            'android/unpacked/peridot-native.cil',
+        )
+        for rel in sources:
+            source = (ROOT / rel).read_text()
+            for residue in ('dvfsrc', 'mtk_hal_power', '112b0000', 'mali'):
+                self.assertNotIn(residue, source, rel)
+        te = (ROOT / 'android/aosp/sepolicy/vendor/peridot_daemon.te').read_text()
+        self.assertIn(
+            'allow hal_power_default sysfs_peridot_subsystem_floor:file rw_file_perms;',
+            te)
 
 
 if __name__ == '__main__':
