@@ -377,6 +377,7 @@ mod vendor_binder {
             unsafe { AParcel_delete(input) };
         }
 
+        let mut result = -1i32;
         if ok && !output.is_null() {
             let mut status: *mut AStatus = ptr::null_mut();
             ok &= unsafe { AParcel_readStatusHeader(output, &mut status) } == STATUS_OK;
@@ -385,6 +386,14 @@ mod vendor_binder {
                 unsafe { AStatus_delete(status) };
             } else {
                 ok = false;
+            }
+
+            if ok {
+                ok &= unsafe { AParcel_readInt32(output, &mut result) } == STATUS_OK;
+                // The HAL reports success as 0. A non-zero code means the panel
+                // rejected the case/mode pair: report failure so the caller does
+                // not persist a state the hardware never applied.
+                ok &= result == 0;
             }
         } else {
             ok = false;
