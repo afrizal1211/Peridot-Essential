@@ -72,6 +72,22 @@ fn host_log() -> &'static std::sync::Mutex<Vec<String>> {
     HOST_LOG.get_or_init(|| std::sync::Mutex::new(Vec::with_capacity(HOST_LOG_CAP)))
 }
 
+/// Escape the transport separator the same way the daemon ring does, so a '|'
+/// inside a message never splits an entry while the merged ring travels to the
+/// Dart viewer. Backslashes first keeps the mapping reversible.
+fn escape_separator(raw: &str) -> String {
+    const SEP: char = '|';
+    const ESC: char = '\\';
+    let mut out = String::with_capacity(raw.len());
+    for ch in raw.chars() {
+        if ch == SEP || ch == ESC {
+            out.push(ESC);
+        }
+        out.push(ch);
+    }
+    out
+}
+
 /// Push a host-side log entry into the in-app ring buffer.
 /// Skipped: mirror to logcat (needs static-buffer path; add when device logs wanted).
 fn log_host(source: &str, level: &str, msg: &str) {
@@ -79,7 +95,7 @@ fn log_host(source: &str, level: &str, msg: &str) {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0);
-    let entry = format!("{ts} {source} {level} {msg}");
+    let entry = format!("{ts} {source} {level} {}", escape_separator(msg));
     if let Ok(mut buf) = host_log().lock() {
         if buf.len() >= HOST_LOG_CAP {
             buf.remove(0);
@@ -609,6 +625,27 @@ pub unsafe extern "C" fn peridot_backend_app_controls_exchange(
     reply.len() as i32
 }
 
+/// Split the log transport text on the record separator '|' while ignoring
+/// separators that [escape_separator] turned into "\|" inside a message.
+fn split_separator(raw: &str) -> Vec<&str> {
+    let mut out = Vec::new();
+    let mut start = 0;
+    let mut backslashes = 0usize;
+    for (i, ch) in raw.char_indices() {
+        match ch {
+            '\\' => backslashes += 1,
+            '|' if backslashes.is_multiple_of(2) => {
+                out.push(&raw[start..i]);
+                start = i + 1;
+                backslashes = 0;
+            }
+            _ => backslashes = 0,
+        }
+    }
+    out.push(&raw[start..]);
+    out
+}
+
 /// Return merged daemon + host logs for the in-app log viewer.
 /// Writes "timestamp source LEVEL message|..." into `output`; returns length,
 /// or -1 on bad args, -2 when output too small.
@@ -617,9 +654,13 @@ pub unsafe extern "C" fn peridot_backend_get_logs(output: *mut u8, capacity: i32
     if output.is_null() || !(1..=1_048_576).contains(&capacity) {
         return -1;
     }
-    // Pull daemon log ring once per open.
+    // Pull daemon log ring once per open. The daemon already escaped pipes
+    // inside its messages, so split on the separator, not on every '|'.
     let daemon_lines = match request("GET logs") {
-        Ok(body) if !body.is_empty() => body.split('|').map(str::to_owned).collect::<Vec<_>>(),
+        Ok(body) if !body.is_empty() => split_separator(&body)
+            .iter()
+            .map(|s| s.to_string())
+            .collect::<Vec<_>>(),
         _ => Vec::new(),
     };
     let mut merged: Vec<String> = daemon_lines;
@@ -802,9 +843,9 @@ fn refresh(cache: &Cache) -> Result<(), String> {
         map.get("cpu_online").map(|v| cpu_mask(v)).unwrap_or(0),
         Ordering::Release,
     );
-    for cpu in 0..8 {
+    for (cpu, slot) in cache.cpu_freq_khz.iter().enumerate() {
         let key = format!("cpu{cpu}");
-        cache.cpu_freq_khz[cpu].store(parse_i64(map.get(&key)), Ordering::Release);
+        slot.store(parse_i64(map.get(&key)), Ordering::Release);
     }
     cache.cpu_gov0.store(
         map.get("gov0").map(|v| cpu_gov_code(v)).unwrap_or(-1),
@@ -2085,11 +2126,11 @@ mod palette_tests {
         assert_eq!(cache.extended[94].load(Ordering::Acquire), 0);
         assert_eq!(cache.extended[96].load(Ordering::Acquire), 0);
         assert_eq!(cache.extended[104].load(Ordering::Acquire), 0);
-        for index in 82..=92 {
-            assert_eq!(cache.extended[index].load(Ordering::Acquire), -1);
+        for slot in &cache.extended[82..=92] {
+            assert_eq!(slot.load(Ordering::Acquire), -1);
         }
-        for index in 97..=103 {
-            assert_eq!(cache.extended[index].load(Ordering::Acquire), -1);
+        for slot in &cache.extended[97..=103] {
+            assert_eq!(slot.load(Ordering::Acquire), -1);
         }
     }
 }

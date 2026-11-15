@@ -132,6 +132,58 @@ typedef _LogsAllocDart = ffi.Pointer<ffi.Void> Function(int);
 typedef _LogsFreeNative = ffi.Void Function(ffi.Pointer<ffi.Void>);
 typedef _LogsFreeDart = void Function(ffi.Pointer<ffi.Void>);
 
+/// Reverse the Rust-side record-separator escaping (backslash then pipe) that
+/// keeps a '|' inside a log message from splitting its entry in transport.
+/// Split the log transport text on the record separator '|' while ignoring
+/// separators the Rust side escaped as "\|" inside a message, so a log line
+/// that mentions a pipe stays one entry instead of being cut in half.
+List<String> _splitLogRecords(String text) {
+  final List<String> out = <String>[];
+  final StringBuffer current = StringBuffer();
+  bool escaped = false;
+  for (final int code in text.codeUnits) {
+    if (escaped) {
+      current.write(String.fromCharCode(0x5C));
+      current.writeCharCode(code);
+      escaped = false;
+    } else if (code == 0x5C) {
+      escaped = true;
+    } else if (code == 0x7C) {
+      out.add(current.toString());
+      current.clear();
+    } else {
+      current.writeCharCode(code);
+    }
+  }
+  out.add(current.toString());
+  return out;
+}
+
+String _unescapeLogSeparator(String line) {
+  final StringBuffer out = StringBuffer();
+  bool escaped = false;
+  for (final int code in line.codeUnits) {
+    if (escaped) {
+      if (code == 0x7C) {
+        out.write('|');
+      } else if (code == 0x5C) {
+        out.write(r'\');
+      } else {
+        // Unknown escape: emit both characters verbatim.
+        out.write(String.fromCharCode(0x5C));
+        out.writeCharCode(code);
+      }
+      escaped = false;
+    } else if (code == 0x5C) {
+      escaped = true;
+    } else {
+      out.writeCharCode(code);
+    }
+  }
+  if (escaped) out.write(String.fromCharCode(0x5C));
+  return out.toString();
+}
+
 final class PeridotBackend {
   PeridotBackend._();
   static final PeridotBackend instance = PeridotBackend._();
@@ -667,17 +719,20 @@ final class PeridotBackend {
       _queue(_setTcpCongestionNative(code), 'set tcp congestion');
 
   /// Export logs via Android Share Intent.
-  /// Writes content to cache, then triggers Share sheet.
-  /// Skipped: error handling for malloc failure (silently no-ops on OOM).
-  void exportLogs(String content) {
-    if (!_started) return;
+  /// Writes content to cache, then triggers Share sheet on the next
+  /// Choreographer frame. Returns true when the native side scheduled the
+  /// share, false when the backend is not started, malloc failed, content is
+  /// empty, or no activity/Choreographer is available to show the sheet.
+  bool exportLogs(String content) {
+    if (!_started) return false;
     final bytes = utf8.encode(content);
+    if (bytes.isEmpty) return false;
     final ffi.Pointer<ffi.Void> buf = _mallocNative(bytes.length);
-    if (buf == ffi.nullptr) return;
+    if (buf == ffi.nullptr) return false;
     try {
       final ffi.Pointer<ffi.Uint8> out = buf.cast<ffi.Uint8>();
       out.asTypedList(bytes.length).setAll(0, bytes);
-      _exportLogsNative(buf.cast<ffi.Char>(), bytes.length);
+      return _exportLogsNative(buf.cast<ffi.Char>(), bytes.length) == 1;
     } finally {
       _freeNative(buf);
     }
@@ -923,29 +978,41 @@ final class PeridotBackend {
   }
 
   /// Fetch daemon + host log entries for the in-app log viewer.
-  /// Returns pipe-separated "timestamp source LEVEL message" entries.
+  /// Returns pipe-separated "timestamp source LEVEL message" entries with the
+  /// Rust-side record-separator escaping reverted. Grows the buffer up to the
+  /// native 1 MiB ceiling when the reply overflows (long daemon entries can
+  /// pass 64 KB), so the viewer no longer silently drops every daemon line.
   /// Skipped: error handling for malloc failures (returns empty on OOM).
   List<String> fetchLogs() {
     if (!_started) return [];
-    // 64 KB buffer — sufficient for 100 daemon entries (~250 bytes each) plus
-    // 100 host entries (~120 bytes each) = ~37 KB. Falls back to empty on
-    // symbol-not-found or alloc failure.
-    const int cap = 65536;
-    final ffi.Pointer<ffi.Void> buf = _mallocNative(cap);
-    if (buf == ffi.nullptr) return [];
-    try {
-      final ffi.Pointer<ffi.Uint8> out = buf.cast<ffi.Uint8>();
-      final int len = _logsNative(out, cap);
-      if (len <= 0 || len > cap) return [];
-      // len bytes written at buf — decode UTF-8.
-      final Uint8List view = out.asTypedList(len);
-      final String text = String.fromCharCodes(view);
-      return text.isEmpty ? [] : text.split('|');
-    } catch (_) {
-      return [];
-    } finally {
-      _freeNative(buf);
+    int cap = 65536;
+    while (cap <= 1048576) {
+      final ffi.Pointer<ffi.Void> buf = _mallocNative(cap);
+      if (buf == ffi.nullptr) return [];
+      try {
+        final ffi.Pointer<ffi.Uint8> out = buf.cast<ffi.Uint8>();
+        final int len = _logsNative(out, cap);
+        if (len == -2) {
+          // Reply exceeded capacity: grow instead of returning an empty list.
+          if (cap >= 1048576) return [];
+          cap *= 2;
+          continue;
+        }
+        if (len <= 0 || len > cap) return [];
+        // len bytes written at buf — decode UTF-8, tolerating malformed bytes.
+        final Uint8List view = out.asTypedList(len);
+        final String text = utf8.decode(view, allowMalformed: true);
+        if (text.isEmpty) return [];
+        return _splitLogRecords(text)
+            .map(_unescapeLogSeparator)
+            .toList(growable: false);
+      } catch (_) {
+        return [];
+      } finally {
+        _freeNative(buf);
+      }
     }
+    return [];
   }
 
   void refresh() {

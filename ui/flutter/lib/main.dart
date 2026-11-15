@@ -13252,8 +13252,10 @@ class _LogScreenState extends State<LogScreen> {
       _local = PeridotLogger().entries;
     });
     // Pull daemon + host logged failures from native. The bridge makes a
-    // blocking socket call to the daemon's GET logs, so run it deferred.
-    Future<void>.delayed(const Duration(milliseconds: 250), () {
+    // blocking socket call (bounded by a 3 s read timeout) to the daemon's
+    // GET logs, so run it after this frame renders instead of freezing the
+    // page transition with a fixed delay.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       setState(() {
         _daemon = PeridotBackend.instance.fetchLogs();
@@ -13293,7 +13295,17 @@ class _LogScreenState extends State<LogScreen> {
 
   void _exportToTxt() {
     final text = _buildExportText();
-    PeridotBackend.instance.exportLogs(text);
+    final bool scheduled = PeridotBackend.instance.exportLogs(text);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(scheduled
+            ? 'Preparing the share sheet with ${_daemon.length} daemon lines…'
+            : 'Export failed — backend not running or no share sheet available'),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
   }
 
   @override

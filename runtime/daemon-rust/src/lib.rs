@@ -2718,13 +2718,31 @@ fn state_dir() -> &'static Path {
         .as_path()
 }
 
-/// Ring buffer for in-app visible daemon logs.
-/// Skipped: disk persistence (add when user requests log export).
+/// Ring buffer for in-app visible daemon logs. Entries are shipped to the
+/// in-app viewer through the "GET logs" socket command and the host bridge;
+/// in-app export lives on the Flutter side.
 const DAEMON_LOG_CAP: usize = 100;
 static DAEMON_LOG: OnceLock<Mutex<Vec<(i64, String)>>> = OnceLock::new();
 
 fn daemon_log() -> &'static Mutex<Vec<(i64, String)>> {
     DAEMON_LOG.get_or_init(|| Mutex::new(Vec::with_capacity(DAEMON_LOG_CAP)))
+}
+
+/// Escape the transport separator so a '|' inside a message never splits a
+/// joined entry while the ring travels through "GET logs" and the host bridge.
+/// The Dart viewer unescapes after splitting; backslashes go first so the
+/// mapping stays reversible.
+fn escape_separator(raw: &str) -> String {
+    const SEP: char = '|';
+    const ESC: char = '\\';
+    let mut out = String::with_capacity(raw.len());
+    for ch in raw.chars() {
+        if ch == SEP || ch == ESC {
+            out.push(ESC);
+        }
+        out.push(ch);
+    }
+    out
 }
 
 /// Push a timestamped message into the daemon ring buffer. Also writes to eprintln
@@ -2739,7 +2757,7 @@ fn log_daemon(msg: &str) {
         if buf.len() >= DAEMON_LOG_CAP {
             buf.remove(0);
         }
-        buf.push((ts, msg.to_string()));
+        buf.push((ts, escape_separator(msg)));
     }
 }
 
@@ -3078,8 +3096,8 @@ fn save_persisted_state(state: &PersistedState) -> Result<(), String> {
     out.push_str(&format!("dolby={}\n", state.dolby));
     out.push_str(&format!("expert_gamut={}\n", state.expert_gamut));
 
-    for i in 0..8 {
-        out.push_str(&format!("expert_{}={}\n", i + 1, state.expert[i]));
+    for (i, value) in state.expert.iter().enumerate() {
+        out.push_str(&format!("expert_{}={}\n", i + 1, value));
     }
 
     out.push_str(&format!("perf={}\n", state.perf));
@@ -5059,11 +5077,11 @@ fn snapshot_persistence_fields() -> Vec<String> {
         format!("gpu_table_min={gpu_table_min}"),
         format!("gpu_table_max={gpu_table_max}"),
         format!("gpu_gov={}", gpu_get_governor()),
-        format!("gpu_ged_boost=0"),
+        "gpu_ged_boost=0".to_string(),
         format!("gpu_thermal_state={}", gpu_get_thermal_state()),
         format!("gpu_uncap_active={}", gpu_get_uncap_active()),
-        format!("gpu_power_policy=0"),
-        format!("gpu_power_policy_str=kernel-managed"),
+        "gpu_power_policy=0".to_string(),
+        "gpu_power_policy_str=kernel-managed".to_string(),
         format!("cpu_min0={}", state.cpu_min_freq0),
         format!("cpu_max0={}", state.cpu_max_freq0),
         format!("cpu_min3={}", state.cpu_min_freq3),

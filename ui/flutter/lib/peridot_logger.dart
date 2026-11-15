@@ -1,6 +1,7 @@
 // Peridot logger — in-memory ring buffer, accessible in-app.
 //
-// Skipped: disk persistence, log export (add when user requests).
+// On-device export (share sheet) and the daemon/host log viewer live in
+// LogScreen + PeridotBackend.fetchLogs/exportLogs; this ring is app-side only.
 // Dart runs single-isolate; no cross-thread locking needed for simple list ops.
 
 import 'package:flutter/foundation.dart';

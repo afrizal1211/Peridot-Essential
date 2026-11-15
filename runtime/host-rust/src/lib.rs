@@ -393,6 +393,8 @@ pub extern "C" fn peridot_backend_export_logs(content: *const c_char, len: i32) 
     let _ = std::fs::create_dir_all(&cache_dir);
     let file_path = cache_dir.join("peridot_logs.txt");
 
+    // c_char is u8 on aarch64 targets but i8 on the CI's x86_64 host, so keep
+    // the explicit cast for portability (clippy::unnecessary_cast is local-only).
     let bytes = unsafe { std::slice::from_raw_parts(content as *const u8, len as usize) };
     if std::fs::write(&file_path, bytes).is_err() {
         return 0;
